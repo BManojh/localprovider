@@ -1,0 +1,81 @@
+.provider-card {
+  background: white;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.card-header {
+  padding: 1rem;
+  background: #3182ce;
+  color: white;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.service-badge {
+  background: white;
+  color: #3182ce;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.8rem;
+}
+
+.card-body {
+  padding: 1rem;
+}
+
+.rating {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.star {
+  color: #f6e05e;
+}
+
+.location {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: #718096;
+  margin-bottom: 1rem;
+}
+
+.description {
+  color: #4a5568;
+  margin-bottom: 1rem;
+}
+
+.card-footer {
+  display: flex;
+  border-top: 1px solid #edf2f7;
+  padding: 1rem;
+}
+
+.contact-btn,
+.details-btn {
+  flex: 1;
+  padding: 0.5rem;
+  text-align: center;
+}
+
+.contact-btn {
+  background: #38a169;
+  color: white;
+  margin-right: 0.5rem;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.details-btn {
+  background: #edf2f7;
+  color: #2d3748;
+  border-radius: 4px;
+}
