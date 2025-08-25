@@ -1002,7 +1002,7 @@ const fetchProvidersWithSpecificCities = async () => {
                 <div className="dashboard-sections">
                   <div className="section-card">
                     <div className="section-header">
-                      <h2>Upcoming Services</h2>
+                      <h2>Ongoing Services</h2>
                     </div>
                     <div className="section-content">
                       {upcomingBookings.length > 0 ? (

@@ -3,6 +3,314 @@ import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import './providerRegistration.css';
 
+// Add styles for the receipt modal
+const receiptStyles = `
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.modal-content {
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  max-width: 90vw;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.receipt-modal {
+  width: 800px;
+  max-width: 90vw;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px;
+  border-bottom: 1px solid #eee;
+}
+
+.modal-header h2 {
+  margin: 0;
+  color: #333;
+}
+
+.close-btn {
+  background: none;
+  border: none;
+  font-size: 24px;
+  cursor: pointer;
+  color: #666;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: all 0.2s;
+}
+
+.close-btn:hover {
+  background-color: #f5f5f5;
+  color: #333;
+}
+
+.receipt-content {
+  padding: 30px;
+  font-family: 'Arial', sans-serif;
+}
+
+.receipt-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 30px;
+}
+
+.company-info h1 {
+  color: #2563eb;
+  margin: 0 0 10px 0;
+  font-size: 32px;
+}
+
+.company-info p {
+  margin: 5px 0;
+  color: #666;
+}
+
+.receipt-info {
+  text-align: right;
+}
+
+.receipt-info h3 {
+  color: #333;
+  font-size: 24px;
+  margin: 0 0 15px 0;
+}
+
+.receipt-info p {
+  margin: 5px 0;
+  color: #666;
+}
+
+.status.completed {
+  background-color: #10b981;
+  color: white;
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: bold;
+}
+
+.receipt-divider {
+  height: 2px;
+  background-color: #e5e7eb;
+  margin: 25px 0;
+}
+
+.receipt-details {
+  margin-bottom: 30px;
+}
+
+.detail-section {
+  margin-bottom: 25px;
+}
+
+.detail-section h4 {
+  color: #374151;
+  margin: 0 0 15px 0;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #e5e7eb;
+  font-size: 18px;
+}
+
+.detail-row {
+  display: flex;
+  justify-content: space-between;
+  margin: 8px 0;
+  padding: 5px 0;
+}
+
+.detail-row span:first-child {
+  color: #6b7280;
+  font-weight: 500;
+}
+
+.detail-row span:last-child {
+  color: #374151;
+  font-weight: 600;
+}
+
+.payment-summary {
+  background-color: #f9fafb;
+  padding: 20px;
+  border-radius: 8px;
+  margin-bottom: 25px;
+}
+
+.payment-summary h4 {
+  color: #374151;
+  margin: 0 0 15px 0;
+  font-size: 18px;
+}
+
+.summary-row {
+  display: flex;
+  justify-content: space-between;
+  margin: 10px 0;
+  padding: 5px 0;
+}
+
+.summary-row.total {
+  border-top: 2px solid #d1d5db;
+  margin-top: 15px;
+  padding-top: 15px;
+  font-size: 18px;
+}
+
+.summary-row.payment-method {
+  border-top: 1px solid #e5e7eb;
+  margin-top: 15px;
+  padding-top: 10px;
+  color: #6b7280;
+}
+
+.service-description {
+  background-color: #f3f4f6;
+  padding: 20px;
+  border-radius: 8px;
+  margin-bottom: 25px;
+}
+
+.service-description h4 {
+  color: #374151;
+  margin: 0 0 10px 0;
+}
+
+.service-description p {
+  color: #6b7280;
+  line-height: 1.6;
+  margin: 0;
+}
+
+.receipt-footer {
+  text-align: center;
+  padding: 20px 0;
+  border-top: 1px solid #e5e7eb;
+  color: #6b7280;
+}
+
+.receipt-footer p {
+  margin: 5px 0;
+}
+
+.receipt-actions {
+  padding: 20px;
+  border-top: 1px solid #eee;
+  display: flex;
+  gap: 15px;
+  justify-content: flex-end;
+}
+
+.receipt-actions button {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.primary-btn {
+  background-color: #2563eb;
+  color: white;
+}
+
+.primary-btn:hover {
+  background-color: #1d4ed8;
+}
+
+.secondary-btn {
+  background-color: #f3f4f6;
+  color: #374151;
+  border: 1px solid #d1d5db;
+}
+
+.secondary-btn:hover {
+  background-color: #e5e7eb;
+}
+
+@media print {
+  .modal-overlay {
+    position: static;
+    background: none;
+  }
+  
+  .modal-content {
+    box-shadow: none;
+    max-width: none;
+    max-height: none;
+  }
+  
+  .modal-header, .receipt-actions {
+    display: none;
+  }
+  
+  .receipt-content {
+    padding: 0;
+  }
+  
+  body {
+    margin: 0;
+    padding: 20px;
+  }
+}
+
+@media (max-width: 768px) {
+  .receipt-modal {
+    width: 95vw;
+    margin: 10px;
+  }
+  
+  .receipt-header {
+    flex-direction: column;
+    gap: 20px;
+  }
+  
+  .receipt-info {
+    text-align: left;
+  }
+  
+  .receipt-actions {
+    flex-direction: column;
+  }
+  
+  .receipt-actions button {
+    width: 100%;
+    justify-content: center;
+  }
+}
+`;
+
+// Inject styles
+if (typeof document !== 'undefined') {
+  const styleSheet = document.createElement('style');
+  styleSheet.textContent = receiptStyles;
+  document.head.appendChild(styleSheet);
+}
+
 const ProviderRegistration = () => {
   const [user, setUser] = useState(null);
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -63,6 +371,8 @@ const ProviderRegistration = () => {
   const [showAvailabilityModal, setShowAvailabilityModal] = useState(false);
   const [selectedBooking, setSelectedBooking] = useState(null);
   const [showBookingModal, setShowBookingModal] = useState(false);
+  const [showReceiptModal, setShowReceiptModal] = useState(false);
+  const [selectedReceipt, setSelectedReceipt] = useState(null);
   const [filterStatus, setFilterStatus] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [dateRange, setDateRange] = useState({ start: '', end: '' });
@@ -236,6 +546,58 @@ const ProviderRegistration = () => {
       console.error('Error updating availability:', error);
       setError('Error updating availability');
     }
+  };
+
+  const handleViewReceipt = (booking) => {
+    setSelectedReceipt(booking);
+    setShowReceiptModal(true);
+  };
+
+  const handlePrintReceipt = () => {
+    window.print();
+  };
+
+  const handleDownloadReceipt = () => {
+    // Create a simple text receipt
+    const receiptText = `
+RECEIPT
+===============================
+Receipt ID: RCP-${selectedReceipt._id.slice(-8).toUpperCase()}
+Date: ${formatDate(selectedReceipt.scheduledDate)}
+
+SERVICE DETAILS:
+Service Type: ${selectedReceipt.serviceType}
+Duration: ${selectedReceipt.estimatedHours} hour(s)
+Hourly Rate: ₹${selectedReceipt.totalCost / selectedReceipt.estimatedHours}
+
+CUSTOMER DETAILS:
+Name: ${selectedReceipt.customerName}
+Address: ${selectedReceipt.address}
+
+PROVIDER DETAILS:
+Name: ${providerProfile.name}
+Service Type: ${providerProfile.serviceType}
+Phone: ${providerProfile.phoneNumber}
+
+PAYMENT SUMMARY:
+Subtotal: ₹${selectedReceipt.totalCost}
+Service Charge: ₹0
+Total Amount: ₹${selectedReceipt.totalCost}
+Status: Paid
+
+===============================
+Thank you for choosing our services!
+    `;
+
+    const blob = new Blob([receiptText], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `receipt-${selectedReceipt._id.slice(-8)}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   const handleLogout = () => {
@@ -830,7 +1192,12 @@ const ProviderRegistration = () => {
                           <p className="booking-cost">₹{booking.totalCost}</p>
                           {booking.status === 'completed' && (
                             <div className="action-buttons">
-                              <button className="secondary-btn">View Receipt</button>
+                              <button 
+                                className="secondary-btn"
+                                onClick={() => handleViewReceipt(booking)}
+                              >
+                                View Receipt
+                              </button>
                             </div>
                           )}
                         </div>
@@ -1253,6 +1620,143 @@ const ProviderRegistration = () => {
           )}
         </div>
       </main>
+
+      {/* Receipt Modal */}
+      {showReceiptModal && selectedReceipt && (
+        <div className="modal-overlay" onClick={() => setShowReceiptModal(false)}>
+          <div className="modal-content receipt-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>Receipt</h2>
+              <button 
+                className="close-btn"
+                onClick={() => setShowReceiptModal(false)}
+              >
+                ✕
+              </button>
+            </div>
+            
+            <div className="receipt-content">
+              <div className="receipt-header">
+                <div className="company-info">
+                  <h1>HomeServices</h1>
+                  <p>Professional Home Services</p>
+                  <p>📧 support@homeservices.com</p>
+                  <p>📞 +91-1800-123-4567</p>
+                </div>
+                <div className="receipt-info">
+                  <h3>RECEIPT</h3>
+                  <p><strong>Receipt ID:</strong> RCP-{selectedReceipt._id.slice(-8).toUpperCase()}</p>
+                  <p><strong>Date:</strong> {formatDate(selectedReceipt.scheduledDate)}</p>
+                  <p><strong>Status:</strong> <span className="status completed">PAID</span></p>
+                </div>
+              </div>
+
+              <div className="receipt-divider"></div>
+
+              <div className="receipt-details">
+                <div className="detail-section">
+                  <h4>Service Details</h4>
+                  <div className="detail-row">
+                    <span>Service Type:</span>
+                    <span>{selectedReceipt.serviceType}</span>
+                  </div>
+                  <div className="detail-row">
+                    <span>Duration:</span>
+                    <span>{selectedReceipt.estimatedHours} hour(s)</span>
+                  </div>
+                  <div className="detail-row">
+                    <span>Hourly Rate:</span>
+                    <span>₹{(selectedReceipt.totalCost / selectedReceipt.estimatedHours).toFixed(2)}</span>
+                  </div>
+                  <div className="detail-row">
+                    <span>Scheduled Time:</span>
+                    <span>{formatTime(selectedReceipt.scheduledTime)}</span>
+                  </div>
+                </div>
+
+                <div className="detail-section">
+                  <h4>Customer Details</h4>
+                  <div className="detail-row">
+                    <span>Name:</span>
+                    <span>{selectedReceipt.customerName}</span>
+                  </div>
+                  <div className="detail-row">
+                    <span>Address:</span>
+                    <span>{selectedReceipt.address}</span>
+                  </div>
+                </div>
+
+                <div className="detail-section">
+                  <h4>Provider Details</h4>
+                  <div className="detail-row">
+                    <span>Name:</span>
+                    <span>{providerProfile.name}</span>
+                  </div>
+                  <div className="detail-row">
+                    <span>Service Type:</span>
+                    <span>{providerProfile.serviceType}</span>
+                  </div>
+                  <div className="detail-row">
+                    <span>Phone:</span>
+                    <span>{providerProfile.phoneNumber}</span>
+                  </div>
+                  <div className="detail-row">
+                    <span>Email:</span>
+                    <span>{providerProfile.email}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="receipt-divider"></div>
+
+              <div className="payment-summary">
+                <h4>Payment Summary</h4>
+                <div className="summary-row">
+                  <span>Subtotal:</span>
+                  <span>₹{selectedReceipt.totalCost}</span>
+                </div>
+                <div className="summary-row">
+                  <span>Service Charge:</span>
+                  <span>₹0</span>
+                </div>
+                <div className="summary-row">
+                  <span>Tax (GST):</span>
+                  <span>₹0</span>
+                </div>
+                <div className="summary-row total">
+                  <span><strong>Total Amount:</strong></span>
+                  <span><strong>₹{selectedReceipt.totalCost}</strong></span>
+                </div>
+                <div className="summary-row payment-method">
+                  <span>Payment Method:</span>
+                  <span>Online Payment</span>
+                </div>
+              </div>
+
+              {selectedReceipt.description && (
+                <div className="service-description">
+                  <h4>Service Description</h4>
+                  <p>{selectedReceipt.description}</p>
+                </div>
+              )}
+
+              <div className="receipt-footer">
+                <p>Thank you for choosing our services!</p>
+                <p>For any queries, contact us at support@homeservices.com</p>
+              </div>
+            </div>
+
+            <div className="receipt-actions">
+              <button className="secondary-btn" onClick={handlePrintReceipt}>
+                🖨️ Print Receipt
+              </button>
+              <button className="primary-btn" onClick={handleDownloadReceipt}>
+                📥 Download Receipt
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
