@@ -660,7 +660,7 @@ const ProviderRegistration = () => {
       setError('Error fetching earnings');
     }
   };
-  
+ 
   const handleRegistration = async (e) => {
     e.preventDefault();
     if (registrationForm.password !== registrationForm.confirmPassword) {
@@ -729,7 +729,11 @@ const ProviderRegistration = () => {
       setIsSubmitting(false);
     }
   };
-  
+ 
+  /**
+   * Starts watching the provider's geolocation and emits updates via socket.
+   * @param {string} bookingId - The ID of the booking that is in progress.
+   */
   const startLocationTracking = (bookingId) => {
     if (!navigator.geolocation) {
       alert("Geolocation is not supported by your browser.");
@@ -739,10 +743,13 @@ const ProviderRegistration = () => {
     if (locationWatchId) {
       navigator.geolocation.clearWatch(locationWatchId);
     }
+
+    // The browser will ask for location permission here.
     const watchId = navigator.geolocation.watchPosition(
       (position) => {
         const { latitude, longitude } = position.coords;
         if (socketRef.current) {
+          // Emitting the location update to the server
           socketRef.current.emit('providerLocationUpdate', {
             bookingId,
             coords: { lat: latitude, lng: longitude }
@@ -759,6 +766,9 @@ const ProviderRegistration = () => {
     setLocationWatchId(watchId);
   };
 
+  /**
+   * Stops watching the provider's geolocation.
+   */
   const stopLocationTracking = () => {
     if (locationWatchId) {
       navigator.geolocation.clearWatch(locationWatchId);
@@ -766,6 +776,11 @@ const ProviderRegistration = () => {
     }
   };
 
+  /**
+   * Updates the booking status and handles location tracking.
+   * @param {string} bookingId - The ID of the booking to update.
+   * @param {string} status - The new status for the booking.
+   */
   const handleBookingStatusUpdate = async (bookingId, status) => {
     try {
       const token = localStorage.getItem('token');
@@ -776,8 +791,10 @@ const ProviderRegistration = () => {
 
       // --- LOCATION TRACKING LOGIC ---
       if (status === 'in-progress') {
+        // This is the key step that starts sharing the location.
         startLocationTracking(bookingId);
       } else if (status === 'completed' || status === 'cancelled') {
+        // Stop sharing location when the job is done or cancelled.
         stopLocationTracking();
       }
       // --- END TRACKING LOGIC ---
