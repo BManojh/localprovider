@@ -1,10 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import './providerRegistration.css';
+// Import socket.io-client for real-time notifications, chat, and location tracking
+import io from 'socket.io-client';
 
-// Add styles for the receipt modal
-const receiptStyles = `
+// Add styles for the receipt, notification, and chat modals
+const componentStyles = `
+/* All existing receipt & notification styles remain the same */
 .modal-overlay {
   position: fixed;
   top: 0;
@@ -17,7 +20,6 @@ const receiptStyles = `
   align-items: center;
   z-index: 1000;
 }
-
 .modal-content {
   background: white;
   border-radius: 8px;
@@ -25,13 +27,13 @@ const receiptStyles = `
   max-width: 90vw;
   max-height: 90vh;
   overflow-y: auto;
+  display: flex; /* Added for chat modal structure */
+  flex-direction: column; /* Added for chat modal structure */
 }
-
 .receipt-modal {
   width: 800px;
   max-width: 90vw;
 }
-
 .modal-header {
   display: flex;
   justify-content: space-between;
@@ -39,12 +41,10 @@ const receiptStyles = `
   padding: 20px;
   border-bottom: 1px solid #eee;
 }
-
 .modal-header h2 {
   margin: 0;
   color: #333;
 }
-
 .close-btn {
   background: none;
   border: none;
@@ -59,49 +59,40 @@ const receiptStyles = `
   border-radius: 50%;
   transition: all 0.2s;
 }
-
 .close-btn:hover {
   background-color: #f5f5f5;
   color: #333;
 }
-
 .receipt-content {
   padding: 30px;
   font-family: 'Arial', sans-serif;
 }
-
 .receipt-header {
   display: flex;
   justify-content: space-between;
   margin-bottom: 30px;
 }
-
 .company-info h1 {
   color: #2563eb;
   margin: 0 0 10px 0;
   font-size: 32px;
 }
-
 .company-info p {
   margin: 5px 0;
   color: #666;
 }
-
 .receipt-info {
   text-align: right;
 }
-
 .receipt-info h3 {
   color: #333;
   font-size: 24px;
   margin: 0 0 15px 0;
 }
-
 .receipt-info p {
   margin: 5px 0;
   color: #666;
 }
-
 .status.completed {
   background-color: #10b981;
   color: white;
@@ -110,21 +101,17 @@ const receiptStyles = `
   font-size: 12px;
   font-weight: bold;
 }
-
 .receipt-divider {
   height: 2px;
   background-color: #e5e7eb;
   margin: 25px 0;
 }
-
 .receipt-details {
   margin-bottom: 30px;
 }
-
 .detail-section {
   margin-bottom: 25px;
 }
-
 .detail-section h4 {
   color: #374151;
   margin: 0 0 15px 0;
@@ -132,87 +119,73 @@ const receiptStyles = `
   border-bottom: 1px solid #e5e7eb;
   font-size: 18px;
 }
-
 .detail-row {
   display: flex;
   justify-content: space-between;
   margin: 8px 0;
   padding: 5px 0;
 }
-
 .detail-row span:first-child {
   color: #6b7280;
   font-weight: 500;
 }
-
 .detail-row span:last-child {
   color: #374151;
   font-weight: 600;
 }
-
 .payment-summary {
   background-color: #f9fafb;
   padding: 20px;
   border-radius: 8px;
   margin-bottom: 25px;
 }
-
 .payment-summary h4 {
   color: #374151;
   margin: 0 0 15px 0;
   font-size: 18px;
 }
-
 .summary-row {
   display: flex;
   justify-content: space-between;
   margin: 10px 0;
   padding: 5px 0;
 }
-
 .summary-row.total {
   border-top: 2px solid #d1d5db;
   margin-top: 15px;
   padding-top: 15px;
   font-size: 18px;
 }
-
 .summary-row.payment-method {
   border-top: 1px solid #e5e7eb;
   margin-top: 15px;
   padding-top: 10px;
   color: #6b7280;
 }
-
 .service-description {
   background-color: #f3f4f6;
   padding: 20px;
   border-radius: 8px;
   margin-bottom: 25px;
 }
-
 .service-description h4 {
   color: #374151;
   margin: 0 0 10px 0;
 }
-
 .service-description p {
   color: #6b7280;
   line-height: 1.6;
   margin: 0;
 }
-
 .receipt-footer {
   text-align: center;
   padding: 20px 0;
   border-top: 1px solid #e5e7eb;
   color: #6b7280;
 }
-
 .receipt-footer p {
   margin: 5px 0;
 }
-
 .receipt-actions {
   padding: 20px;
   border-top: 1px solid #eee;
@@ -220,7 +193,6 @@ const receiptStyles = `
   gap: 15px;
   justify-content: flex-end;
 }
-
 .receipt-actions button {
   padding: 10px 20px;
   border: none;
@@ -232,82 +204,257 @@ const receiptStyles = `
   align-items: center;
   gap: 8px;
 }
-
 .primary-btn {
   background-color: #2563eb;
   color: white;
 }
-
 .primary-btn:hover {
   background-color: #1d4ed8;
 }
-
 .secondary-btn {
   background-color: #f3f4f6;
   color: #374151;
   border: 1px solid #d1d5db;
 }
-
 .secondary-btn:hover {
   background-color: #e5e7eb;
 }
-
 @media print {
   .modal-overlay {
     position: static;
     background: none;
   }
-  
   .modal-content {
     box-shadow: none;
     max-width: none;
     max-height: none;
   }
-  
   .modal-header, .receipt-actions {
     display: none;
   }
-  
   .receipt-content {
     padding: 0;
   }
-  
   body {
     margin: 0;
     padding: 20px;
   }
 }
-
 @media (max-width: 768px) {
   .receipt-modal {
     width: 95vw;
     margin: 10px;
   }
-  
   .receipt-header {
     flex-direction: column;
     gap: 20px;
   }
-  
   .receipt-info {
     text-align: left;
   }
-  
   .receipt-actions {
     flex-direction: column;
   }
-  
   .receipt-actions button {
     width: 100%;
     justify-content: center;
   }
+}
+
+/* Notification Styles */
+.notification-container {
+  position: relative;
+}
+.notification-panel {
+  position: absolute;
+  top: 55px;
+  right: 0;
+  width: 350px;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 5px 15px rgba(0,0,0,0.15);
+  z-index: 100;
+  overflow: hidden;
+}
+.notification-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid #eee;
+}
+.notification-header h3 {
+  margin: 0;
+  font-size: 16px;
+}
+.notification-header button {
+  background: none;
+  border: none;
+  color: #2563eb;
+  cursor: pointer;
+  font-size: 12px;
+}
+.notification-list {
+  max-height: 400px;
+  overflow-y: auto;
+}
+.notification-item {
+  display: flex;
+  padding: 12px 16px;
+  border-bottom: 1px solid #eee;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+.notification-item:hover {
+  background-color: #f9fafb;
+}
+.notification-item.unread {
+  background-color: #eff6ff;
+}
+.notification-icon {
+  margin-right: 12px;
+  font-size: 20px;
+}
+.notification-content p {
+  margin: 0;
+  font-size: 14px;
+  color: #333;
+}
+.notification-content .timestamp {
+  font-size: 12px;
+  color: #999;
+  margin-top: 4px;
+}
+.notification-empty {
+  text-align: center;
+  padding: 40px 20px;
+  color: #999;
+}
+.notification-modal {
+  width: 450px;
+  max-width: 90vw;
+}
+.notification-modal-body {
+    padding: 20px 30px;
+}
+.notification-modal-body h3 {
+    margin-top: 0;
+    color: #333;
+}
+.notification-modal-body p {
+    color: #666;
+    line-height: 1.6;
+}
+.notification-modal-actions {
+    padding: 15px 30px;
+    display: flex;
+    justify-content: flex-end;
+    border-top: 1px solid #eee;
+}
+
+/* NEW: Chat Modal Styles */
+.chat-modal {
+  width: 450px;
+  max-width: 90vw;
+  height: 600px;
+  max-height: 80vh;
+}
+.chat-messages {
+  flex-grow: 1;
+  padding: 20px;
+  overflow-y: auto;
+  background-color: #f9fafb;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.chat-message {
+  display: flex;
+  max-width: 80%;
+}
+.message-bubble {
+  padding: 10px 15px;
+  border-radius: 18px;
+  position: relative;
+}
+.message-text {
+  margin: 0;
+  line-height: 1.5;
+}
+.message-timestamp {
+  font-size: 10px;
+  color: #666;
+  display: block;
+  text-align: right;
+  margin-top: 4px;
+}
+  .message-sender-name {
+    font-size: 12px;
+    font-weight: bold;
+    color: #2563eb;
+    margin-bottom: 4px;
+}
+.chat-message.sent {
+  align-self: flex-end;
+}
+.chat-message.sent .message-bubble {
+  background-color: #dbeafe;
+  color: #1e40af;
+  border-bottom-right-radius: 4px;
+}
+.chat-message.sent .message-timestamp {
+    color: #5572c3;
+}
+.chat-message.received {
+  align-self: flex-start;
+}
+.chat-message.received .message-bubble {
+  background-color: #e5e7eb;
+  color: #374151;
+  border-bottom-left-radius: 4px;
+}
+.empty-chat-message {
+    text-align: center;
+    color: #9ca3af;
+    margin: auto;
+}
+.chat-form {
+  display: flex;
+  padding: 15px;
+  border-top: 1px solid #eee;
+  background-color: white;
+}
+.chat-input {
+  flex-grow: 1;
+  padding: 10px 15px;
+  border: 1px solid #d1d5db;
+  border-radius: 20px;
+  margin-right: 10px;
+  outline: none;
+}
+.chat-input:focus {
+    border-color: #2563eb;
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
+}
+.chat-send-btn {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 20px;
+  background-color: #2563eb;
+  color: white;
+  cursor: pointer;
+  font-weight: 600;
+}
+.chat-send-btn:disabled {
+  background-color: #9ca3af;
+  cursor: not-allowed;
 }
 `;
 
 // Inject styles
 if (typeof document !== 'undefined') {
   const styleSheet = document.createElement('style');
-  styleSheet.textContent = receiptStyles;
+  styleSheet.textContent = componentStyles;
   document.head.appendChild(styleSheet);
 }
 
@@ -319,6 +466,11 @@ const ProviderRegistration = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const socketRef = useRef(null);
+
+  // State for location tracking
+  const [locationWatchId, setLocationWatchId] = useState(null);
+
 
   // Provider Profile States
   const [providerProfile, setProviderProfile] = useState({
@@ -366,27 +518,42 @@ const ProviderRegistration = () => {
     certifications: ''
   });
 
+  // Notification States
+  const [notifications, setNotifications] = useState([]);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [selectedNotification, setSelectedNotification] = useState(null);
+
+  // Chat States
+  const [showChatModal, setShowChatModal] = useState(false);
+  const [chatBooking, setChatBooking] = useState(null);
+  const [messages, setMessages] = useState([]);
+  const [newMessage, setNewMessage] = useState('');
+  const [isChatLoading, setIsChatLoading] = useState(false);
+  const chatMessagesEndRef = useRef(null);
+  const [chatError, setChatError] = useState('');
+
+
   const [isRegistering, setIsRegistering] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
-  const [showAvailabilityModal, setShowAvailabilityModal] = useState(false);
-  const [selectedBooking, setSelectedBooking] = useState(null);
-  const [showBookingModal, setShowBookingModal] = useState(false);
   const [showReceiptModal, setShowReceiptModal] = useState(false);
   const [selectedReceipt, setSelectedReceipt] = useState(null);
   const [filterStatus, setFilterStatus] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [dateRange, setDateRange] = useState({ start: '', end: '' });
 
+
   const navigate = useNavigate();
 
   const serviceTypes = [
-    'Plumbing', 'Electrical', 'Carpentry', 'Cleaning', 'Painting', 
+    'Plumbing', 'Electrical', 'Carpentry', 'Cleaning', 'Painting',
     'Gardening', 'AC Repair', 'Appliance Repair', 'Home Maintenance', 'Other'
   ];
-
   const dayNames = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
 
   useEffect(() => {
+    // Initialize socket connection once
+    socketRef.current = io('http://localhost:5000');
+
     const token = localStorage.getItem('token');
     if (token) {
       fetchProviderData();
@@ -395,7 +562,56 @@ const ProviderRegistration = () => {
     } else {
       setLoading(false);
     }
+
+    // Disconnect socket and clear location tracking on cleanup
+    return () => {
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+      }
+      if (locationWatchId) {
+        navigator.geolocation.clearWatch(locationWatchId);
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // useEffect for handling WebSocket events
+  useEffect(() => {
+    if (user?._id && socketRef.current) {
+      const socket = socketRef.current;
+
+      socket.emit('joinRoom', user._id);
+
+      socket.on('notification', (data) => {
+        const newNotification = {
+          ...data,
+          id: Date.now(),
+          isRead: false,
+          timestamp: new Date(),
+        };
+        setNotifications(prev => [newNotification, ...prev]);
+      });
+
+      socket.on('receiveMessage', (receivedMessage) => {
+        if (chatBooking?._id === receivedMessage.bookingId) {
+          setMessages(prev => [...prev, receivedMessage]);
+        }
+      });
+
+      return () => {
+        socket.emit('leaveRoom', user._id);
+        socket.off('notification');
+        socket.off('receiveMessage');
+      };
+    }
+  }, [user, chatBooking]);
+
+  // useEffect to scroll to the bottom of the chat
+  useEffect(() => {
+    if (chatMessagesEndRef.current) {
+      chatMessagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [messages]);
 
   const fetchProviderData = async () => {
     try {
@@ -444,7 +660,7 @@ const ProviderRegistration = () => {
       setError('Error fetching earnings');
     }
   };
-
+  
   const handleRegistration = async (e) => {
     e.preventDefault();
     if (registrationForm.password !== registrationForm.confirmPassword) {
@@ -462,7 +678,7 @@ const ProviderRegistration = () => {
       };
 
       const response = await axios.post('http://localhost:5000/api/auth/register', registrationData);
-      
+
       localStorage.setItem('token', response.data.token);
       setUser(response.data.user);
       setProviderProfile(response.data.user);
@@ -498,11 +714,9 @@ const ProviderRegistration = () => {
 
     try {
       const token = localStorage.getItem('token');
-      console.log('Updating profile with data:', profileData); // Debug log
       const response = await axios.put('http://localhost:5000/api/auth/profile', profileData, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      console.log('Profile update response:', response.data); // Debug log
       setUser(response.data.user);
       setProviderProfile(response.data.user);
       setIsEditing(false);
@@ -515,17 +729,61 @@ const ProviderRegistration = () => {
       setIsSubmitting(false);
     }
   };
+  
+  const startLocationTracking = (bookingId) => {
+    if (!navigator.geolocation) {
+      alert("Geolocation is not supported by your browser.");
+      return;
+    }
+    // Stop any previous tracking
+    if (locationWatchId) {
+      navigator.geolocation.clearWatch(locationWatchId);
+    }
+    const watchId = navigator.geolocation.watchPosition(
+      (position) => {
+        const { latitude, longitude } = position.coords;
+        if (socketRef.current) {
+          socketRef.current.emit('providerLocationUpdate', {
+            bookingId,
+            coords: { lat: latitude, lng: longitude }
+          });
+        }
+      },
+      (error) => {
+        console.error("Error watching location:", error);
+        alert("Could not share location. Please ensure location services are enabled.");
+        stopLocationTracking(); // Stop if there's an error
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
+    setLocationWatchId(watchId);
+  };
+
+  const stopLocationTracking = () => {
+    if (locationWatchId) {
+      navigator.geolocation.clearWatch(locationWatchId);
+      setLocationWatchId(null);
+    }
+  };
 
   const handleBookingStatusUpdate = async (bookingId, status) => {
     try {
       const token = localStorage.getItem('token');
-      await axios.put(`http://localhost:5000/api/bookings/${bookingId}/status`, 
-        { status }, 
+      await axios.put(`http://localhost:5000/api/bookings/${bookingId}/status`,
+        { status },
         { headers: { Authorization: `Bearer ${token}` } }
       );
+
+      // --- LOCATION TRACKING LOGIC ---
+      if (status === 'in-progress') {
+        startLocationTracking(bookingId);
+      } else if (status === 'completed' || status === 'cancelled') {
+        stopLocationTracking();
+      }
+      // --- END TRACKING LOGIC ---
+
       fetchBookings();
       fetchEarnings();
-      setShowBookingModal(false);
       alert(`Booking ${status} successfully!`);
     } catch (error) {
       console.error('Error updating booking:', error);
@@ -536,11 +794,10 @@ const ProviderRegistration = () => {
   const handleAvailabilityUpdate = async () => {
     try {
       const token = localStorage.getItem('token');
-      await axios.put('http://localhost:5000/api/providers/availability', 
-        { availability: providerProfile.availability }, 
+      await axios.put('http://localhost:5000/api/providers/availability',
+        { availability: providerProfile.availability },
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      setShowAvailabilityModal(false);
       alert('Availability updated successfully!');
     } catch (error) {
       console.error('Error updating availability:', error);
@@ -558,37 +815,30 @@ const ProviderRegistration = () => {
   };
 
   const handleDownloadReceipt = () => {
-    // Create a simple text receipt
     const receiptText = `
 RECEIPT
 ===============================
 Receipt ID: RCP-${selectedReceipt._id.slice(-8).toUpperCase()}
 Date: ${formatDate(selectedReceipt.scheduledDate)}
-
 SERVICE DETAILS:
 Service Type: ${selectedReceipt.serviceType}
 Duration: ${selectedReceipt.estimatedHours} hour(s)
 Hourly Rate: ₹${selectedReceipt.totalCost / selectedReceipt.estimatedHours}
-
 CUSTOMER DETAILS:
 Name: ${selectedReceipt.customerName}
 Address: ${selectedReceipt.address}
-
 PROVIDER DETAILS:
 Name: ${providerProfile.name}
 Service Type: ${providerProfile.serviceType}
 Phone: ${providerProfile.phoneNumber}
-
 PAYMENT SUMMARY:
 Subtotal: ₹${selectedReceipt.totalCost}
 Service Charge: ₹0
 Total Amount: ₹${selectedReceipt.totalCost}
 Status: Paid
-
 ===============================
 Thank you for choosing our services!
     `;
-
     const blob = new Blob([receiptText], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -606,41 +856,146 @@ Thank you for choosing our services!
     navigate('/auth');
   };
 
+  const handleNotificationClick = (notification) => {
+    setSelectedNotification(notification);
+    if (!notification.isRead) {
+      setNotifications(notifications.map(n => n.id === notification.id ? { ...n, isRead: true } : n));
+    }
+  };
+
+  const handleCloseNotificationModal = () => {
+    setSelectedNotification(null);
+  };
+
+  const handleMarkAllAsRead = () => {
+    setNotifications(notifications.map(n => ({ ...n, isRead: true })));
+  };
+
+  const handleOpenChat = async (booking) => {
+    setChatBooking(booking);
+    setShowChatModal(true);
+    setIsChatLoading(true);
+    setChatError('');
+
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.get(`http://localhost:5000/api/chat/${booking._id}/messages`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setMessages(response.data.messages || []);
+      if (socketRef.current) {
+        socketRef.current.emit('joinChatRoom', booking._id);
+      }
+    } catch (err) {
+      console.error("Failed to fetch chat history:", err);
+      if (err.response) {
+        if (err.response.status === 401) {
+          setChatError("Authentication failed. Please log in again.");
+        } else {
+          setChatError(`Error: ${err.response.data.message || 'Could not load chat history.'}`);
+        }
+      } else if (err.request) {
+        setChatError("Could not connect to the server. Please check your network connection.");
+      } else {
+        setChatError("An unexpected error occurred. Please try again.");
+      }
+    }
+    finally {
+      setIsChatLoading(false);
+    }
+  };
+
+  const handleCloseChat = () => {
+    if (socketRef.current && chatBooking) {
+      socketRef.current.emit('leaveChatRoom', chatBooking._id);
+    }
+    setShowChatModal(false);
+    setChatBooking(null);
+    setMessages([]);
+    setNewMessage('');
+  };
+
+  const handleSendMessage = (e) => {
+    e.preventDefault();
+    if (!newMessage.trim() || !user || !chatBooking || !socketRef.current) return;
+
+    const messageData = {
+      bookingId: chatBooking._id,
+      senderId: user._id,
+      receiverId: chatBooking.customerId,
+      text: newMessage,
+    };
+
+    socketRef.current.emit('sendMessage', messageData);
+
+    const optimisticMessage = {
+      ...messageData,
+      _id: Date.now(),
+      sender: { _id: user._id, name: user.name },
+      createdAt: new Date().toISOString()
+    };
+    setMessages(prev => [...prev, optimisticMessage]);
+    setNewMessage('');
+  };
+
+  const formatRelativeTime = (date) => {
+    const now = new Date();
+    const seconds = Math.floor((now - new Date(date)) / 1000);
+    let interval = seconds / 31536000;
+    if (interval > 1) return Math.floor(interval) + " years ago";
+    interval = seconds / 2592000;
+    if (interval > 1) return Math.floor(interval) + " months ago";
+    interval = seconds / 86400;
+    if (interval > 1) return Math.floor(interval) + " days ago";
+    interval = seconds / 3600;
+    if (interval > 1) return Math.floor(interval) + " hours ago";
+    interval = seconds / 60;
+    if (interval > 1) return Math.floor(interval) + " minutes ago";
+    return Math.floor(seconds) + " seconds ago";
+  };
+
   const getStatusColor = (status) => {
     switch (status) {
-      case 'pending': return '#d69e2e';
-      case 'confirmed': return '#38a169';
-      case 'in-progress': return '#3182ce';
-      case 'completed': return '#2f855a';
-      case 'cancelled': return '#e53e3e';
-      default: return '#718096';
+      case 'pending': return '#d97706';
+      case 'confirmed': return '#059669';
+      case 'in-progress': return '#2563eb';
+      case 'completed': return '#16a34a';
+      case 'cancelled': return '#dc2626';
+      default: return '#4b5563';
     }
   };
 
   const formatDate = (dateString) => {
-    const options = { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' };
+    const options = { year: 'numeric', month: 'long', day: 'numeric' };
     return new Date(dateString).toLocaleDateString('en-IN', options);
   };
 
   const formatTime = (timeString) => {
-    return timeString;
+    if (!timeString) return '';
+    const [hour, minute] = timeString.split(':');
+    const h = parseInt(hour, 10);
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    const formattedHour = h % 12 || 12;
+    return `${formattedHour}:${minute} ${ampm}`;
   };
+
+  const unreadCount = notifications.filter(n => !n.isRead).length;
 
   const filteredBookings = bookings.filter(booking => {
     const matchesSearch = booking.serviceType.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         booking.customerName?.toLowerCase().includes(searchTerm.toLowerCase());
+      (booking.customerName && booking.customerName.toLowerCase().includes(searchTerm.toLowerCase()));
     const matchesFilter = filterStatus === 'all' || booking.status === filterStatus;
-    const matchesDateRange = !dateRange.start || !dateRange.end || 
-                            (new Date(booking.scheduledDate) >= new Date(dateRange.start) && 
-                             new Date(booking.scheduledDate) <= new Date(dateRange.end));
+    const matchesDateRange = !dateRange.start || !dateRange.end ||
+      (new Date(booking.scheduledDate) >= new Date(dateRange.start) &&
+        new Date(booking.scheduledDate) <= new Date(dateRange.end));
     return matchesSearch && matchesFilter && matchesDateRange;
   });
 
-  const upcomingBookings = filteredBookings.filter(b => 
+  const upcomingBookings = filteredBookings.filter(b =>
     ['pending', 'confirmed', 'in-progress'].includes(b.status)
   ).sort((a, b) => new Date(a.scheduledDate) - new Date(b.scheduledDate));
 
-  const pastBookings = filteredBookings.filter(b => 
+  const pastBookings = filteredBookings.filter(b =>
     ['completed', 'cancelled'].includes(b.status)
   ).sort((a, b) => new Date(b.scheduledDate) - new Date(a.scheduledDate));
 
@@ -674,7 +1029,7 @@ Thank you for choosing our services!
                   <input
                     type="text"
                     value={registrationForm.name}
-                    onChange={(e) => setRegistrationForm({...registrationForm, name: e.target.value})}
+                    onChange={(e) => setRegistrationForm({ ...registrationForm, name: e.target.value })}
                     required
                   />
                 </div>
@@ -683,7 +1038,7 @@ Thank you for choosing our services!
                   <input
                     type="email"
                     value={registrationForm.email}
-                    onChange={(e) => setRegistrationForm({...registrationForm, email: e.target.value})}
+                    onChange={(e) => setRegistrationForm({ ...registrationForm, email: e.target.value })}
                     required
                   />
                 </div>
@@ -695,7 +1050,7 @@ Thank you for choosing our services!
                   <input
                     type="password"
                     value={registrationForm.password}
-                    onChange={(e) => setRegistrationForm({...registrationForm, password: e.target.value})}
+                    onChange={(e) => setRegistrationForm({ ...registrationForm, password: e.target.value })}
                     required
                   />
                 </div>
@@ -704,7 +1059,7 @@ Thank you for choosing our services!
                   <input
                     type="password"
                     value={registrationForm.confirmPassword}
-                    onChange={(e) => setRegistrationForm({...registrationForm, confirmPassword: e.target.value})}
+                    onChange={(e) => setRegistrationForm({ ...registrationForm, confirmPassword: e.target.value })}
                     required
                   />
                 </div>
@@ -715,7 +1070,7 @@ Thank you for choosing our services!
                 <input
                   type="tel"
                   value={registrationForm.phoneNumber}
-                  onChange={(e) => setRegistrationForm({...registrationForm, phoneNumber: e.target.value})}
+                  onChange={(e) => setRegistrationForm({ ...registrationForm, phoneNumber: e.target.value })}
                   required
                 />
               </div>
@@ -728,7 +1083,7 @@ Thank you for choosing our services!
                   <label>Service Type *</label>
                   <select
                     value={registrationForm.serviceType}
-                    onChange={(e) => setRegistrationForm({...registrationForm, serviceType: e.target.value})}
+                    onChange={(e) => setRegistrationForm({ ...registrationForm, serviceType: e.target.value })}
                     required
                   >
                     <option value="">Select Service Type</option>
@@ -743,7 +1098,7 @@ Thank you for choosing our services!
                     type="number"
                     min="0"
                     value={registrationForm.experience}
-                    onChange={(e) => setRegistrationForm({...registrationForm, experience: e.target.value})}
+                    onChange={(e) => setRegistrationForm({ ...registrationForm, experience: e.target.value })}
                     required
                   />
                 </div>
@@ -755,7 +1110,7 @@ Thank you for choosing our services!
                   type="number"
                   min="100"
                   value={registrationForm.hourlyRate}
-                  onChange={(e) => setRegistrationForm({...registrationForm, hourlyRate: e.target.value})}
+                  onChange={(e) => setRegistrationForm({ ...registrationForm, hourlyRate: e.target.value })}
                   required
                 />
               </div>
@@ -764,7 +1119,7 @@ Thank you for choosing our services!
                 <label>Service Description *</label>
                 <textarea
                   value={registrationForm.description}
-                  onChange={(e) => setRegistrationForm({...registrationForm, description: e.target.value})}
+                  onChange={(e) => setRegistrationForm({ ...registrationForm, description: e.target.value })}
                   placeholder="Describe your services and expertise..."
                   required
                 />
@@ -775,7 +1130,7 @@ Thank you for choosing our services!
                 <input
                   type="text"
                   value={registrationForm.skills}
-                  onChange={(e) => setRegistrationForm({...registrationForm, skills: e.target.value})}
+                  onChange={(e) => setRegistrationForm({ ...registrationForm, skills: e.target.value })}
                   placeholder="e.g., Leak repair, Pipe installation, Bathroom fitting"
                 />
               </div>
@@ -785,7 +1140,7 @@ Thank you for choosing our services!
                 <input
                   type="text"
                   value={registrationForm.certifications}
-                  onChange={(e) => setRegistrationForm({...registrationForm, certifications: e.target.value})}
+                  onChange={(e) => setRegistrationForm({ ...registrationForm, certifications: e.target.value })}
                   placeholder="e.g., Licensed Plumber, Safety Certified"
                 />
               </div>
@@ -799,7 +1154,7 @@ Thank you for choosing our services!
                   <input
                     type="text"
                     value={registrationForm.city}
-                    onChange={(e) => setRegistrationForm({...registrationForm, city: e.target.value})}
+                    onChange={(e) => setRegistrationForm({ ...registrationForm, city: e.target.value })}
                     required
                   />
                 </div>
@@ -808,7 +1163,7 @@ Thank you for choosing our services!
                   <input
                     type="text"
                     value={registrationForm.pincode}
-                    onChange={(e) => setRegistrationForm({...registrationForm, pincode: e.target.value})}
+                    onChange={(e) => setRegistrationForm({ ...registrationForm, pincode: e.target.value })}
                     required
                   />
                 </div>
@@ -819,7 +1174,7 @@ Thank you for choosing our services!
                 <input
                   type="text"
                   value={registrationForm.location}
-                  onChange={(e) => setRegistrationForm({...registrationForm, location: e.target.value})}
+                  onChange={(e) => setRegistrationForm({ ...registrationForm, location: e.target.value })}
                   placeholder="Areas where you provide services"
                   required
                 />
@@ -829,7 +1184,7 @@ Thank you for choosing our services!
                 <label>Full Address *</label>
                 <textarea
                   value={registrationForm.address}
-                  onChange={(e) => setRegistrationForm({...registrationForm, address: e.target.value})}
+                  onChange={(e) => setRegistrationForm({ ...registrationForm, address: e.target.value })}
                   required
                 />
               </div>
@@ -870,49 +1225,49 @@ Thank you for choosing our services!
         </div>
 
         <nav className="sidebar-nav">
-          <button 
+          <button
             className={`nav-item ${activeTab === 'dashboard' ? 'active' : ''}`}
             onClick={() => setActiveTab('dashboard')}
           >
             <span>📊</span>
             Dashboard
           </button>
-          <button 
+          <button
             className={`nav-item ${activeTab === 'bookings' ? 'active' : ''}`}
             onClick={() => setActiveTab('bookings')}
           >
             <span>📅</span>
             My Bookings
           </button>
-          <button 
+          <button
             className={`nav-item ${activeTab === 'earnings' ? 'active' : ''}`}
             onClick={() => setActiveTab('earnings')}
           >
             <span>💰</span>
             Earnings
           </button>
-          <button 
+          <button
             className={`nav-item ${activeTab === 'availability' ? 'active' : ''}`}
             onClick={() => setActiveTab('availability')}
           >
             <span>🕐</span>
             Availability
           </button>
-          <button 
+          <button
             className={`nav-item ${activeTab === 'profile' ? 'active' : ''}`}
             onClick={() => setActiveTab('profile')}
           >
             <span>👤</span>
             My Profile
           </button>
-          <button 
+          <button
             className={`nav-item ${activeTab === 'reviews' ? 'active' : ''}`}
             onClick={() => setActiveTab('reviews')}
           >
             <span>⭐</span>
             Reviews
           </button>
-          <button 
+          <button
             className="nav-item logout"
             onClick={handleLogout}
           >
@@ -942,18 +1297,49 @@ Thank you for choosing our services!
           </h1>
           <div className="header-actions">
             <div className="search-box">
-              <input 
-                type="text" 
-                placeholder="Search..." 
+              <input
+                type="text"
+                placeholder="Search..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
               <span className="search-icon">🔍</span>
             </div>
-            <button className="notification-btn">
-              <span>🔔</span>
-              <span className="badge">5</span>
-            </button>
+
+            {/* NEW: Updated Notification Button and Panel */}
+            <div className="notification-container">
+              <button className="notification-btn" onClick={() => setShowNotifications(!showNotifications)}>
+                <span>🔔</span>
+                {unreadCount > 0 && <span className="badge">{unreadCount}</span>}
+              </button>
+              {showNotifications && (
+                <div className="notification-panel">
+                  <div className="notification-header">
+                    <h3>Notifications</h3>
+                    <button onClick={handleMarkAllAsRead}>Mark all as read</button>
+                  </div>
+                  <div className="notification-list">
+                    {notifications.length > 0 ? (
+                      notifications.map(n => (
+                        <div key={n.id} className={`notification-item ${n.isRead ? '' : 'unread'}`} onClick={() => handleNotificationClick(n)}>
+                          <div className="notification-icon">
+                            {n.type === 'new_booking' ? '📅' : 'ℹ️'}
+                          </div>
+                          <div className="notification-content">
+                            <p>{n.message}</p>
+                            <div className="timestamp">{formatRelativeTime(n.timestamp)}</div>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="notification-empty">
+                        <p>No new notifications</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </header>
 
@@ -1016,7 +1402,7 @@ Thank you for choosing our services!
                           </div>
                         </div>
                         <div className="booking-status">
-                          <span 
+                          <span
                             className="status-badge"
                             style={{ backgroundColor: getStatusColor(booking.status) }}
                           >
@@ -1034,21 +1420,21 @@ Thank you for choosing our services!
                   </div>
                   <div className="section-content">
                     <div className="action-buttons">
-                      <button 
+                      <button
                         className="action-btn"
                         onClick={() => setActiveTab('availability')}
                       >
                         <span>🕐</span>
                         Update Availability
                       </button>
-                      <button 
+                      <button
                         className="action-btn"
                         onClick={() => setActiveTab('profile')}
                       >
                         <span>✏️</span>
                         Edit Profile
                       </button>
-                      <button 
+                      <button
                         className="action-btn"
                         onClick={() => setActiveTab('earnings')}
                       >
@@ -1066,7 +1452,7 @@ Thank you for choosing our services!
             <div className="bookings-container">
               {/* Filters */}
               <div className="filters-row">
-                <select 
+                <select
                   value={filterStatus}
                   onChange={(e) => setFilterStatus(e.target.value)}
                 >
@@ -1077,16 +1463,16 @@ Thank you for choosing our services!
                   <option value="completed">Completed</option>
                   <option value="cancelled">Cancelled</option>
                 </select>
-                <input 
+                <input
                   type="date"
                   value={dateRange.start}
-                  onChange={(e) => setDateRange({...dateRange, start: e.target.value})}
+                  onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
                   placeholder="Start Date"
                 />
-                <input 
+                <input
                   type="date"
                   value={dateRange.end}
-                  onChange={(e) => setDateRange({...dateRange, end: e.target.value})}
+                  onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })}
                   placeholder="End Date"
                 />
               </div>
@@ -1099,7 +1485,7 @@ Thank you for choosing our services!
                     <div key={booking._id} className="booking-card">
                       <div className="booking-card-header">
                         <h3>{booking.serviceType}</h3>
-                        <span 
+                        <span
                           className="status-badge"
                           style={{ backgroundColor: getStatusColor(booking.status) }}
                         >
@@ -1118,16 +1504,19 @@ Thank you for choosing our services!
                         <div className="booking-actions">
                           <p className="booking-cost">₹{booking.totalCost}</p>
                           <div className="action-buttons">
+                            <button className="secondary-btn" onClick={() => handleOpenChat(booking)}>
+                                💬 Chat
+                            </button>
                             {booking.status === 'pending' && (
                               <>
-                                <button 
+                                <button
                                   className="primary-btn"
                                   onClick={() => handleBookingStatusUpdate(booking._id, 'confirmed')}
                                   disabled={isSubmitting}
                                 >
                                   Accept
                                 </button>
-                                <button 
+                                <button
                                   className="cancel-btn"
                                   onClick={() => handleBookingStatusUpdate(booking._id, 'cancelled')}
                                   disabled={isSubmitting}
@@ -1137,7 +1526,7 @@ Thank you for choosing our services!
                               </>
                             )}
                             {booking.status === 'confirmed' && (
-                              <button 
+                              <button
                                 className="primary-btn"
                                 onClick={() => handleBookingStatusUpdate(booking._id, 'in-progress')}
                                 disabled={isSubmitting}
@@ -1146,7 +1535,7 @@ Thank you for choosing our services!
                               </button>
                             )}
                             {booking.status === 'in-progress' && (
-                              <button 
+                              <button
                                 className="success-btn"
                                 onClick={() => handleBookingStatusUpdate(booking._id, 'completed')}
                                 disabled={isSubmitting}
@@ -1175,7 +1564,7 @@ Thank you for choosing our services!
                     <div key={booking._id} className="booking-card">
                       <div className="booking-card-header">
                         <h3>{booking.serviceType}</h3>
-                        <span 
+                        <span
                           className="status-badge"
                           style={{ backgroundColor: getStatusColor(booking.status) }}
                         >
@@ -1192,7 +1581,7 @@ Thank you for choosing our services!
                           <p className="booking-cost">₹{booking.totalCost}</p>
                           {booking.status === 'completed' && (
                             <div className="action-buttons">
-                              <button 
+                              <button
                                 className="secondary-btn"
                                 onClick={() => handleViewReceipt(booking)}
                               >
@@ -1284,7 +1673,7 @@ Thank you for choosing our services!
                         <span className="slider"></span>
                       </label>
                     </div>
-                    
+
                     {providerProfile.availability[day].available && (
                       <div className="time-inputs">
                         <div className="time-group">
@@ -1342,7 +1731,7 @@ Thank you for choosing our services!
             <div className="profile-container">
               <div className="profile-header">
                 <h2>My Profile</h2>
-                <button 
+                <button
                   className={`edit-btn ${isEditing ? 'active' : ''}`}
                   onClick={() => setIsEditing(!isEditing)}
                   disabled={isSubmitting}
@@ -1372,7 +1761,7 @@ Thank you for choosing our services!
                         <input
                           type="text"
                           value={providerProfile.name}
-                          onChange={(e) => setProviderProfile({...providerProfile, name: e.target.value})}
+                          onChange={(e) => setProviderProfile({ ...providerProfile, name: e.target.value })}
                           disabled={!isEditing || isSubmitting}
                           required
                         />
@@ -1382,7 +1771,7 @@ Thank you for choosing our services!
                         <input
                           type="email"
                           value={providerProfile.email}
-                          onChange={(e) => setProviderProfile({...providerProfile, email: e.target.value})}
+                          onChange={(e) => setProviderProfile({ ...providerProfile, email: e.target.value })}
                           disabled={!isEditing || isSubmitting}
                           required
                         />
@@ -1394,7 +1783,7 @@ Thank you for choosing our services!
                       <input
                         type="tel"
                         value={providerProfile.phoneNumber}
-                        onChange={(e) => setProviderProfile({...providerProfile, phoneNumber: e.target.value})}
+                        onChange={(e) => setProviderProfile({ ...providerProfile, phoneNumber: e.target.value })}
                         disabled={!isEditing || isSubmitting}
                         required
                       />
@@ -1408,7 +1797,7 @@ Thank you for choosing our services!
                         <label>Service Type *</label>
                         <select
                           value={providerProfile.serviceType}
-                          onChange={(e) => setProviderProfile({...providerProfile, serviceType: e.target.value})}
+                          onChange={(e) => setProviderProfile({ ...providerProfile, serviceType: e.target.value })}
                           disabled={!isEditing || isSubmitting}
                           required
                         >
@@ -1424,7 +1813,7 @@ Thank you for choosing our services!
                           type="number"
                           min="0"
                           value={providerProfile.experience}
-                          onChange={(e) => setProviderProfile({...providerProfile, experience: e.target.value})}
+                          onChange={(e) => setProviderProfile({ ...providerProfile, experience: e.target.value })}
                           disabled={!isEditing || isSubmitting}
                           required
                         />
@@ -1437,7 +1826,7 @@ Thank you for choosing our services!
                         type="number"
                         min="100"
                         value={providerProfile.hourlyRate}
-                        onChange={(e) => setProviderProfile({...providerProfile, hourlyRate: e.target.value})}
+                        onChange={(e) => setProviderProfile({ ...providerProfile, hourlyRate: e.target.value })}
                         disabled={!isEditing || isSubmitting}
                         required
                       />
@@ -1447,7 +1836,7 @@ Thank you for choosing our services!
                       <label>Service Description *</label>
                       <textarea
                         value={providerProfile.description}
-                        onChange={(e) => setProviderProfile({...providerProfile, description: e.target.value})}
+                        onChange={(e) => setProviderProfile({ ...providerProfile, description: e.target.value })}
                         disabled={!isEditing || isSubmitting}
                         required
                       />
@@ -1460,7 +1849,7 @@ Thank you for choosing our services!
                           type="text"
                           value={Array.isArray(providerProfile.skills) ? providerProfile.skills.join(', ') : providerProfile.skills}
                           onChange={(e) => setProviderProfile({
-                            ...providerProfile, 
+                            ...providerProfile,
                             skills: e.target.value.split(',').map(skill => skill.trim()).filter(skill => skill)
                           })}
                           disabled={!isEditing || isSubmitting}
@@ -1472,7 +1861,7 @@ Thank you for choosing our services!
                           type="text"
                           value={Array.isArray(providerProfile.certifications) ? providerProfile.certifications.join(', ') : providerProfile.certifications}
                           onChange={(e) => setProviderProfile({
-                            ...providerProfile, 
+                            ...providerProfile,
                             certifications: e.target.value.split(',').map(cert => cert.trim()).filter(cert => cert)
                           })}
                           disabled={!isEditing || isSubmitting}
@@ -1489,7 +1878,7 @@ Thank you for choosing our services!
                         <input
                           type="text"
                           value={providerProfile.city}
-                          onChange={(e) => setProviderProfile({...providerProfile, city: e.target.value})}
+                          onChange={(e) => setProviderProfile({ ...providerProfile, city: e.target.value })}
                           disabled={!isEditing || isSubmitting}
                           required
                         />
@@ -1499,7 +1888,7 @@ Thank you for choosing our services!
                         <input
                           type="text"
                           value={providerProfile.pincode}
-                          onChange={(e) => setProviderProfile({...providerProfile, pincode: e.target.value})}
+                          onChange={(e) => setProviderProfile({ ...providerProfile, pincode: e.target.value })}
                           disabled={!isEditing || isSubmitting}
                           required
                         />
@@ -1511,7 +1900,7 @@ Thank you for choosing our services!
                       <input
                         type="text"
                         value={providerProfile.location}
-                        onChange={(e) => setProviderProfile({...providerProfile, location: e.target.value})}
+                        onChange={(e) => setProviderProfile({ ...providerProfile, location: e.target.value })}
                         disabled={!isEditing || isSubmitting}
                         required
                       />
@@ -1521,7 +1910,7 @@ Thank you for choosing our services!
                       <label>Full Address *</label>
                       <textarea
                         value={providerProfile.address}
-                        onChange={(e) => setProviderProfile({...providerProfile, address: e.target.value})}
+                        onChange={(e) => setProviderProfile({ ...providerProfile, address: e.target.value })}
                         disabled={!isEditing || isSubmitting}
                         required
                       />
@@ -1534,9 +1923,9 @@ Thank you for choosing our services!
                     <button type="submit" className="primary-btn" disabled={isSubmitting}>
                       {isSubmitting ? 'Saving...' : 'Save Changes'}
                     </button>
-                    <button 
-                      type="button" 
-                      className="secondary-btn" 
+                    <button
+                      type="button"
+                      className="secondary-btn"
                       onClick={() => setIsEditing(false)}
                       disabled={isSubmitting}
                     >
@@ -1621,20 +2010,40 @@ Thank you for choosing our services!
         </div>
       </main>
 
+      {/* Notification Modal */}
+      {selectedNotification && (
+        <div className="modal-overlay" onClick={handleCloseNotificationModal}>
+          <div className="modal-content notification-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>{selectedNotification.title}</h2>
+              <button className="close-btn" onClick={handleCloseNotificationModal}>✕</button>
+            </div>
+            <div className="notification-modal-body">
+              <p>{selectedNotification.message}</p>
+            </div>
+            <div className="notification-modal-actions">
+              <button className="primary-btn" onClick={handleCloseNotificationModal}>
+                OK
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Receipt Modal */}
       {showReceiptModal && selectedReceipt && (
         <div className="modal-overlay" onClick={() => setShowReceiptModal(false)}>
           <div className="modal-content receipt-modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h2>Receipt</h2>
-              <button 
+              <button
                 className="close-btn"
                 onClick={() => setShowReceiptModal(false)}
               >
                 ✕
               </button>
             </div>
-            
+
             <div className="receipt-content">
               <div className="receipt-header">
                 <div className="company-info">
@@ -1756,6 +2165,63 @@ Thank you for choosing our services!
             </div>
           </div>
         </div>
+      )}
+
+      {/* Chat Modal */}
+      {showChatModal && chatBooking && (
+          <div className="modal-overlay" onClick={handleCloseChat}>
+              <div className="modal-content chat-modal" onClick={(e) => e.stopPropagation()}>
+                  <div className="modal-header">
+                      <h2>Chat with {chatBooking.customerName}</h2>
+                      <button className="close-btn" onClick={handleCloseChat}>×</button>
+                  </div>
+                  <div className="chat-messages">
+                      {isChatLoading ? (
+                          <div className="loading-spinner"></div>
+                      ) : chatError ? (
+                           <p className="empty-chat-message">{chatError}</p>
+                      ) : messages.length > 0 ? (
+                          messages.map(msg => {
+                            const isSent = msg.senderId === user._id || msg.sender?._id === user._id;
+                            return (
+                                <div
+                                  key={msg._id || Date.now()}
+                                  className={`chat-message ${isSent ? 'sent' : 'received'}`}
+                                >
+                                  <div className="message-bubble">
+                                    {!isSent && (
+                                        <strong className="message-sender-name">
+                                            {msg.sender?.name || chatBooking.customerName}
+                                        </strong>
+                                    )}
+                                    <p className="message-text">{msg.text}</p>
+                                    <span className="message-timestamp">
+                                        {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                    </span>
+                                  </div>
+                                </div>
+                            );
+                          })
+                      ) : (
+                          <p className="empty-chat-message">No messages yet. Start the conversation!</p>
+                      )}
+                      <div ref={chatMessagesEndRef} />
+                  </div>
+                  <form className="chat-form" onSubmit={handleSendMessage}>
+                      <input
+                          type="text"
+                          className="chat-input"
+                          placeholder="Type a message..."
+                          value={newMessage}
+                          onChange={(e) => setNewMessage(e.target.value)}
+                          autoComplete="off"
+                      />
+                      <button type="submit" className="chat-send-btn" disabled={!newMessage.trim()}>
+                          Send
+                      </button>
+                  </form>
+              </div>
+          </div>
       )}
     </div>
   );

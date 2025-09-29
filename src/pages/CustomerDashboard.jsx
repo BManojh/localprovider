@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { MapContainer, TileLayer, Marker, Popup, ZoomControl, Circle, useMap, useMapEvents } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, ZoomControl, Circle, useMap, useMapEvents, Polyline } from 'react-leaflet';
 import MarkerClusterGroup from 'react-leaflet-cluster';
 import 'leaflet/dist/leaflet.css';
 import './CustomerDashboard.css';
 import L from 'leaflet';
+import io from 'socket.io-client';
 
 // Fix for default marker icon not showing
 delete L.Icon.Default.prototype._getIconUrl;
@@ -51,76 +52,182 @@ const userLocationIcon = L.icon({
   popupAnchor: [0, -20]
 });
 
-// Map control component for centering on user location
-const MapControls = ({ userLocation, onLocationUpdate }) => {
-  const map = useMap();
+// Special icon for the provider being tracked
+const providerTrackingIcon = L.icon({
+  iconUrl: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0iIzI1NjNlYiIgd2lkdGg9IjM2cHgiIGhlaWdodD0iMzZweCI+PHBhdGggZD0iTTAgMGgyNHYyNEgwVjB6IiBmaWxsPSJub25lIi8+PHBhdGggZD0iTTIxIDMuMDVjLTEuODYtMS44Ni00LjQxLTIuOTYtNy4xNy0zLjA0QzYuNzMgLS4wNyAzLjA5IDIuNzIgMy4wNSA5LjgyYy0uMDQgMi43NiAxLjA2IDUuMzEgMi45MSA3LjE3bDYuMDYgNi4wNi4wMS0uMDFMOSAxOS4xN1Y0LjA1YzAtLjU1LjQ1LTEgMS0xaDQuNWMxLjg0IDAgMy40NS45NyA0LjM0IDIuNTJMOC45NiAxMy45bDEwLjYxLTEwLjYxYy4zOC0uMzggMS4wMi0uMzggMS40MSAwbC4wMS4wMWMuMzkuMzkuMzkgMS4wMyAwIDEuNDJMMTMuNDYgMTkuMDJsMi4xMiAyLjEyYzEuNTgtMS41OCAyLjYxLTMuNzQgMi4xNC02LjE0IDAtMy4wOS0xLjQ0LTUuODctMy43OC03Ljd6bS05LjI0IDguMjJsNC4yNC00LjI0Yy0uNzctMS4xOS0yLjA3LTEuOTgtMy40OS0xLjk4aC0zLjAxdjMuMDFjMCAxLjQyLjc5IDIuNzIgMS45OCAzLjQ5eiIvPjwvc3ZnPg==',
+  iconSize: [36, 36],
+  iconAnchor: [18, 36],
+  popupAnchor: [0, -36]
+});
 
-  const centerOnUser = () => {
-    if (userLocation) {
-      map.setView([userLocation.lat, userLocation.lng], 14);
-    }
-  };
-
-  const getCurrentLocation = () => {
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          const newLocation = {
-            lat: position.coords.latitude,
-            lng: position.coords.longitude
-          };
-          onLocationUpdate(newLocation);
-          map.setView([newLocation.lat, newLocation.lng], 14);
-        },
-        (error) => {
-          console.error('Error getting location:', error);
-          alert('Unable to get your current location. Please check your browser settings.');
+// Component to smoothly move the marker on the map
+const AnimatedMarker = ({ position, icon }) => {
+    const markerRef = useRef(null);
+    useEffect(() => {
+        if (markerRef.current) {
+            markerRef.current.setLatLng(position);
         }
-      );
-    } else {
-      alert('Geolocation is not supported by this browser.');
-    }
-  };
+    }, [position]);
 
-  useEffect(() => {
-    // Add custom controls
-    const locationControl = L.control({ position: 'topright' });
-    locationControl.onAdd = () => {
-      const div = L.DomUtil.create('div', 'leaflet-bar leaflet-control leaflet-control-custom');
-      div.innerHTML = `
-        <button title="Center on my location" class="center-btn">
-          📍
-        </button>
-        <button title="Get current location" class="location-btn">
-          🎯
-        </button>
-      `;
-      
-      const buttons = div.querySelectorAll('button');
-      buttons[0].onclick = centerOnUser;
-      buttons[1].onclick = getCurrentLocation;
-      
-      return div;
-    };
-    
-    locationControl.addTo(map);
-    
-    return () => {
-      map.removeControl(locationControl);
-    };
-  }, [map, userLocation, onLocationUpdate]);
-
-  return null;
+    return <Marker position={position} icon={icon} ref={markerRef} />;
 };
 
-// Map click handler component
+
+// Map Geocoder component for address search
+const MapGeocoder = ({ onLocationSelect }) => {
+    const [query, setQuery] = useState('');
+    const [results, setResults] = useState([]);
+    const map = useMap();
+
+    const handleSearch = async (e) => {
+        e.preventDefault();
+        if (query.length < 3) return;
+
+        try {
+            const response = await axios.get(`https://nominatim.openstreetmap.org/search?format=json&q=${query}`, {
+                headers: { 'User-Agent': 'HomeServiceApp/1.0' }
+            });
+            setResults(response.data);
+        } catch (error) {
+            console.error("Error fetching geocoding results:", error);
+            alert("Could not search for the address. Please try again.");
+        }
+    };
+
+    const handleSelectResult = (result) => {
+        const latlng = { lat: parseFloat(result.lat), lng: parseFloat(result.lon) };
+        map.flyTo(latlng, 15);
+        onLocationSelect(latlng);
+        setQuery('');
+        setResults([]);
+    };
+
+    return (
+        <div className="leaflet-top leaflet-right">
+            <div className="leaflet-control leaflet-bar geocoder-container">
+                <form onSubmit={handleSearch}>
+                    <input
+                        type="text"
+                        value={query}
+                        onChange={(e) => setQuery(e.target.value)}
+                        placeholder="Search for an address..."
+                        className="geocoder-input"
+                    />
+                    <button type="submit" className="geocoder-button">Search</button>
+                </form>
+                {results.length > 0 && (
+                    <ul className="geocoder-results">
+                        {results.map(result => (
+                            <li key={result.place_id} onClick={() => handleSelectResult(result)}>
+                                {result.display_name}
+                            </li>
+                        ))}
+                    </ul>
+                )}
+            </div>
+        </div>
+    );
+};
+
+// Map control component for centering on user location
+const MapControls = ({ userLocation, onLocationUpdate }) => {
+    const map = useMap();
+
+    const centerOnUser = () => {
+        if (userLocation) {
+            map.flyTo([userLocation.lat, userLocation.lng], 14);
+        }
+    };
+
+    const getCurrentLocation = () => {
+        if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(
+                (position) => {
+                    const newLocation = {
+                        lat: position.coords.latitude,
+                        lng: position.coords.longitude
+                    };
+                    onLocationUpdate(newLocation);
+                    map.flyTo([newLocation.lat, newLocation.lng], 14);
+                },
+                (error) => {
+                    console.error('Error getting location:', error);
+                    alert('Unable to get your current location. Please check your browser settings.');
+                }
+            );
+        } else {
+            alert('Geolocation is not supported by this browser.');
+        }
+    };
+
+    useEffect(() => {
+        const locationControl = L.control({ position: 'topright' });
+        locationControl.onAdd = () => {
+            const div = L.DomUtil.create('div', 'leaflet-bar leaflet-control leaflet-control-custom');
+            div.innerHTML = `
+                <button title="Center on my location" class="center-btn">
+                  📍
+                </button>
+                <button title="Get current location" class="location-btn">
+                  🎯
+                </button>
+            `;
+
+            const buttons = div.querySelectorAll('button');
+            buttons[0].onclick = centerOnUser;
+            buttons[1].onclick = getCurrentLocation;
+
+            return div;
+        };
+
+        locationControl.addTo(map);
+
+        return () => {
+            map.removeControl(locationControl);
+        };
+    }, [map, userLocation, onLocationUpdate]);
+
+    return null;
+};
+
+// Map click handler component with reverse geocoding
 const MapClickHandler = ({ onMapClick }) => {
-  useMapEvents({
-    click: (e) => {
-      onMapClick(e.latlng);
-    }
-  });
-  return null;
+    const [clickedPos, setClickedPos] = useState(null);
+    const [address, setAddress] = useState('');
+
+    useMapEvents({
+        click: async (e) => {
+            setClickedPos(e.latlng);
+            try {
+                const response = await axios.get(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${e.latlng.lat}&lon=${e.latlng.lng}`, {
+                    headers: { 'User-Agent': 'HomeServiceApp/1.0' }
+                });
+                const fetchedAddress = response.data.display_name || 'Unknown address';
+                setAddress(fetchedAddress);
+
+                if (window.confirm(`Set this location as your current position?\n\n${fetchedAddress}`)) {
+                    onMapClick(e.latlng);
+                }
+            } catch (error) {
+                console.error('Error fetching reverse geocoding:', error);
+                if (window.confirm('Could not fetch address. Set this location anyway?')) {
+                    onMapClick(e.latlng);
+                }
+            } finally {
+               // Reset after a delay to allow the popup to be seen
+               setTimeout(() => {
+                   setClickedPos(null);
+                   setAddress('');
+               }, 3000);
+            }
+        }
+    });
+
+    return clickedPos ? (
+        <Popup position={clickedPos}>
+            {address || "Fetching address..."}
+        </Popup>
+    ) : null;
 };
 
 const CustomerDashboard = () => {
@@ -139,7 +246,8 @@ const CustomerDashboard = () => {
     date: '',
     time: '',
     estimatedHours: 1,
-    address: ''
+    address: '',
+    files: []
   });
   const [searchTerm, setSearchTerm] = useState('');
   const [filterService, setFilterService] = useState('all');
@@ -173,8 +281,24 @@ const CustomerDashboard = () => {
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const providersPerPage = 6;
-  const mapRef = useRef(null);
+  const [notifications, setNotifications] = useState([]);
+  const [showNotifications, setShowNotifications] = useState(false);
 
+  // State for chat feature
+  const [showChatModal, setShowChatModal] = useState(false);
+  const [chatBooking, setChatBooking] = useState(null);
+  const [messages, setMessages] = useState([]);
+  const [newMessage, setNewMessage] = useState('');
+  const [isChatLoading, setIsChatLoading] = useState(false);
+
+  // States for tracking
+  const [showTrackingModal, setShowTrackingModal] = useState(false);
+  const [bookingToTrack, setBookingToTrack] = useState(null);
+  const [providerLiveLocation, setProviderLiveLocation] = useState(null);
+
+  const mapRef = useRef(null);
+  const socketRef = useRef(null);
+  const chatMessagesEndRef = useRef(null); // Ref to auto-scroll chat
   const navigate = useNavigate();
 
   const serviceTypes = [
@@ -182,7 +306,6 @@ const CustomerDashboard = () => {
     'Gardening', 'AC Repair', 'Appliance Repair', 'Home Maintenance', 'Other'
   ];
 
-  // Enhanced tile layer options
   const tileLayerOptions = {
     street: {
       url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
@@ -200,8 +323,7 @@ const CustomerDashboard = () => {
       name: "Terrain"
     }
   };
-
-  // Enhanced geolocation with high accuracy
+ 
   const getUserLocation = useCallback((highAccuracy = false) => {
     if (!navigator.geolocation) {
       setError('Geolocation is not supported by this browser.');
@@ -209,7 +331,7 @@ const CustomerDashboard = () => {
     }
 
     setIsLocationLoading(true);
-    
+
     const options = {
       enableHighAccuracy: highAccuracy,
       timeout: highAccuracy ? 10000 : 5000,
@@ -225,7 +347,7 @@ const CustomerDashboard = () => {
         setUserLocation(location);
         setLocationAccuracy(position.coords.accuracy);
         setIsLocationLoading(false);
-        
+
         if (mapRef.current) {
           mapRef.current.setView([location.lat, location.lng], 14);
         }
@@ -233,10 +355,10 @@ const CustomerDashboard = () => {
       (error) => {
         console.error('Error getting location:', error);
         setIsLocationLoading(false);
-        
+
         const defaultLocation = { lat: 11.3410, lng: 77.7172 };
         setUserLocation(defaultLocation);
-        
+
         switch(error.code) {
           case error.PERMISSION_DENIED:
             setError('Location access denied. Using default location.');
@@ -256,7 +378,72 @@ const CustomerDashboard = () => {
     );
   }, []);
 
-  // Fetch user data and dashboard data
+  useEffect(() => {
+    const script = document.createElement('script');
+    script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+    script.async = true;
+    document.body.appendChild(script);
+   
+    return () => {
+      document.body.removeChild(script);
+    };
+  }, []);
+
+  useEffect(() => {
+    socketRef.current = io('http://localhost:5000');
+    const socket = socketRef.current;
+    if (user?._id) {
+        socket.emit('joinRoom', user._id);
+    }
+    socket.on('notification', (data) => {
+      const newNotification = {
+        ...data,
+        id: Date.now(),
+        isRead: false,
+        timestamp: new Date()
+      };
+      setNotifications(prev => [newNotification, ...prev]);
+      if (Notification.permission === 'granted') {
+        new Notification(data.title, { body: data.message });
+      }
+    });
+
+    socket.on('receiveMessage', (receivedMessage) => {
+      if (chatBooking?._id === receivedMessage.bookingId) {
+        setMessages(prev => [...prev, receivedMessage]);
+      }
+    });
+
+    // SOCKET LISTENER FOR LIVE LOCATION
+    socket.on('liveLocationUpdate', (data) => {
+        if (bookingToTrack?._id === data.bookingId) {
+            setProviderLiveLocation(data.coords);
+        }
+    });
+
+    return () => {
+      if (user?._id) {
+        socket.emit('leaveRoom', user._id);
+      }
+      socket.off('notification');
+      socket.off('receiveMessage');
+      socket.off('liveLocationUpdate'); // Cleanup listener
+      socket.disconnect();
+    };
+  }, [user, chatBooking, bookingToTrack]);
+
+  useEffect(() => {
+    if (chatMessagesEndRef.current) {
+        chatMessagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [messages]);
+
+  useEffect(() => {
+    if ('Notification' in window && Notification.permission !== 'granted' && Notification.permission !== 'denied') {
+      Notification.requestPermission();
+    }
+  }, []);
+
   useEffect(() => {
     fetchUserData();
     fetchProviders();
@@ -264,7 +451,6 @@ const CustomerDashboard = () => {
     getUserLocation();
   }, [getUserLocation]);
 
-  // Update profile form when user data is fetched
   useEffect(() => {
     if (user) {
       setProfileForm({
@@ -280,7 +466,11 @@ const CustomerDashboard = () => {
     }
   }, [user]);
 
-  // Calculate distance between two points using Haversine formula
+  const handleTabChange = (tab) => {
+    setActiveTab(tab);
+    setError('');
+  };
+
   const calculateDistance = useCallback((lat1, lon1, lat2, lon2) => {
     const R = 6371; // Radius of Earth in kilometers
     const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -293,30 +483,24 @@ const CustomerDashboard = () => {
     return R * c;
   }, []);
 
-  // Enhanced nearby providers finder
   const findNearbyProviders = useCallback((userLoc, radius = selectedRadius, serviceFilter = mapFilterService) => {
     if (!userLoc || !providers.length) return;
 
     const nearby = providers
-      .map(provider => {
-        const providerCoordinates = provider.coordinates;
-        const distance = calculateDistance(
+      .map(provider => ({
+        ...provider,
+        distance: calculateDistance(
           userLoc.lat, userLoc.lng,
-          providerCoordinates.lat, providerCoordinates.lng
-        );
-
-        return {
-          ...provider,
-          distance: distance
-        };
-      })
+          provider.coordinates.lat, provider.coordinates.lng
+        )
+      }))
       .filter(provider => {
         const matchesDistance = provider.distance <= radius;
         const matchesService = serviceFilter === 'all' || provider.serviceType === serviceFilter;
-        const matchesSearch = !searchTerm || 
+        const matchesSearch = !searchTerm ||
           provider.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
           provider.serviceType.toLowerCase().includes(searchTerm.toLowerCase());
-        const matchesAvailability = !availabilityFilter || 
+        const matchesAvailability = !availabilityFilter ||
           (provider.availability && provider.availability.includes(availabilityFilter));
         return matchesDistance && matchesService && matchesSearch && matchesAvailability;
       })
@@ -335,12 +519,9 @@ const CustomerDashboard = () => {
     }
   }, [userLocation, providers, findNearbyProviders]);
 
-  // Handle map click for setting custom location
   const handleMapClick = useCallback((latlng) => {
-    if (window.confirm('Set this location as your current position?')) {
-      setUserLocation(latlng);
-      setLocationAccuracy(null);
-    }
+    setUserLocation(latlng);
+    setLocationAccuracy(null);
   }, []);
 
   const fetchUserData = async () => {
@@ -367,176 +548,40 @@ const CustomerDashboard = () => {
     }
   };
 
- // Replace the fetchProviders function with this corrected version
-
-const fetchProviders = async () => {
-  try {
-    const token = localStorage.getItem('token');
-    const response = await axios.get('http://localhost:5000/api/providers', {
-      headers: { Authorization: `Bearer ${token}` }
-    });
-
-    // Define accurate coordinates for different cities
-    const cityCoordinates = {
-      'Tiruppur': { lat: 11.1085, lng: 77.3411 },
-      'Coimbatore': { lat: 11.0168, lng: 76.9558 },
-      'Erode': { lat: 11.3410, lng: 77.7172 },
-      'Salem': { lat: 11.6643, lng: 78.1460 },
-      'Karur': { lat: 10.9601, lng: 78.0766 },
-      'Namakkal': { lat: 11.2189, lng: 78.1677 },
-      'Dindigul': { lat: 10.3673, lng: 77.9803 },
-      'Madurai': { lat: 9.9252, lng: 78.1198 },
-      'Chennai': { lat: 13.0827, lng: 80.2707 },
-      'Kanchipuram': { lat: 12.8185, lng: 79.7009 },
-      'Vellore': { lat: 12.9165, lng: 79.1325 },
-      'Hosur': { lat: 12.7409, lng: 77.8253 },
-      'Krishnagiri': { lat: 12.5186, lng: 78.2137 },
-      'Dharmapuri': { lat: 12.1271, lng: 78.1590 }
-    };
-
-    // Array of cities to randomly assign to providers
-    const cities = Object.keys(cityCoordinates);
-
-    const providersWithCoords = response.data.providers.map((provider, index) => {
-      // Assign cities in a more distributed way
-      let cityName;
-      
-      // You can modify this logic based on your actual provider data
-      // For now, I'm using a simple rotation through cities
-      if (provider.location) {
-        // If provider already has a location field, use it
-        cityName = provider.location;
-      } else {
-        // Otherwise, assign cities in rotation
-        cityName = cities[index % cities.length];
-      }
-
-      // Get base coordinates for the city
-      const baseCoords = cityCoordinates[cityName] || cityCoordinates['Erode']; // Default to Erode
-
-      // Add small random offset to avoid exact overlap (within ~2km radius)
-      const latOffset = (Math.random() - 0.5) * 0.02; // ~1km variation
-      const lngOffset = (Math.random() - 0.5) * 0.02; // ~1km variation
-
-      return {
-        ...provider,
-        location: cityName, // Add location name
-        coordinates: {
-          lat: baseCoords.lat + latOffset,
-          lng: baseCoords.lng + lngOffset
-        },
-        availability: ['2025-08-07', '2025-08-08', '2025-08-09']
+  const fetchProviders = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.get('http://localhost:5000/api/providers', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const cityCoordinates = {
+        'Tiruppur': { lat: 11.1085, lng: 77.3411 }, 'Coimbatore': { lat: 11.0168, lng: 76.9558 },
+        'Erode': { lat: 11.3410, lng: 77.7172 }, 'Salem': { lat: 11.6643, lng: 78.1460 },
+        'Karur': { lat: 10.9601, lng: 78.0766 }, 'Namakkal': { lat: 11.2189, lng: 78.1677 },
+        'Dindigul': { lat: 10.3673, lng: 77.9803 }, 'Madurai': { lat: 9.9252, lng: 78.1198 },
+        'Chennai': { lat: 13.0827, lng: 80.2707 }, 'Kanchipuram': { lat: 12.8185, lng: 79.7009 },
+        'Vellore': { lat: 12.9165, lng: 79.1325 }, 'Hosur': { lat: 12.7409, lng: 77.8253 },
+        'Krishnagiri': { lat: 12.5186, lng: 78.2137 }, 'Dharmapuri': { lat: 12.1271, lng: 78.1590 }
       };
-    });
-
-    setProviders(providersWithCoords);
-  } catch (error) {
-    console.error('Error fetching providers:', error);
-    setError(error.response?.data?.message || 'Error fetching providers');
-  }
-};
-
-// Alternative approach if you want to assign specific cities to specific providers
-const fetchProvidersWithSpecificCities = async () => {
-  try {
-    const token = localStorage.getItem('token');
-    const response = await axios.get('http://localhost:5000/api/providers', {
-      headers: { Authorization: `Bearer ${token}` }
-    });
-
-    // Define accurate coordinates for cities
-    const cityCoordinates = {
-      'Tiruppur': { lat: 11.1085, lng: 77.3411 },
-      'Coimbatore': { lat: 11.0168, lng: 76.9558 },
-      'Erode': { lat: 11.3410, lng: 77.7172 },
-      'Salem': { lat: 11.6643, lng: 78.1460 },
-      'Karur': { lat: 10.9601, lng: 78.0766 },
-      'Chennai': { lat: 13.0827, lng: 80.2707 },
-      'Madurai': { lat: 9.9252, lng: 78.1198 },
-      'Namakkal': { lat: 11.2189, lng: 78.1677 },
-      
-      // Small regions/towns near Erode
-      'Perundurai': { lat: 11.2760, lng: 77.5831 }, // 25km from Erode
-      'Bhavani': { lat: 11.4485, lng: 77.6794 }, // 15km from Erode
-      'Gobichettipalayam': { lat: 11.4583, lng: 77.4333 }, // 30km from Erode
-      'Sathyamangalam': { lat: 11.5050, lng: 77.2378 }, // 45km from Erode
-      'Anthiyur': { lat: 11.5769, lng: 77.5964 }, // 35km from Erode
-      'Modakurichi': { lat: 11.4242, lng: 77.6242 }, // 20km from Erode
-      
-      // Small regions/towns near Tiruppur
-      'Avinashi': { lat: 11.1925, lng: 77.2686 }, // 15km from Tiruppur
-      'Palladam': { lat: 11.1554, lng: 77.2864 }, // 10km from Tiruppur
-      'Dharapuram': { lat: 10.7383, lng: 77.5281 }, // 45km from Tiruppur
-      'Kangeyam': { lat: 11.0080, lng: 77.5619 }, // 25km from Tiruppur
-      'Uthukuli': { lat: 11.0889, lng: 77.3608 }, // 8km from Tiruppur
-      'Vedasandur': { lat: 10.5311, lng: 77.9486 }, // 60km from Tiruppur
-      
-      // Small regions/towns near Salem
-      'Mettur': { lat: 11.7883, lng: 77.8017 }, // 25km from Salem
-      'Sankari': { lat: 11.4650, lng: 78.2036 }, // 25km from Salem
-      'Omalur': { lat: 11.7350, lng: 78.0597 }, // 15km from Salem
-      'Attur': { lat: 11.5928, lng: 78.6033 }, // 45km from Salem
-      'Vazhapadi': { lat: 11.6450, lng: 78.3464 }, // 20km from Salem
-      'Yercaud': { lat: 11.7747, lng: 78.2036 }, // 30km from Salem (Hill station)
-      'Edappadi': { lat: 11.5564, lng: 77.8581 }, // 35km from Salem
-      
-      // Additional nearby towns
-      'Sivakasi': { lat: 9.4584, lng: 77.8081 },
-      'Pollachi': { lat: 10.6581, lng: 77.0089 }, // Near Coimbatore
-      'Udumalaipettai': { lat: 10.5833, lng: 77.2667 }, // Near Tiruppur/Coimbatore
-      'Rasipuram': { lat: 11.4633, lng: 78.1817 }, // Near Salem/Namakkal
-      'Tiruchengode': { lat: 11.3833, lng: 77.8833 }, // Between Erode and Salem
-      'Kumarapalayam': { lat: 11.4244, lng: 77.7681 }
-    };
-
-    // Assign specific cities based on service type or other criteria
-    const providersWithCoords = response.data.providers.map((provider, index) => {
-      let cityName;
-      
-      // Assign cities based on service type for better distribution
-      switch (provider.serviceType) {
-        case 'Plumbing':
-          cityName = ['Tiruppur', 'Coimbatore', 'Erode'][index % 3];
-          break;
-        case 'Electrical':
-          cityName = ['Salem', 'Karur', 'Erode'][index % 3];
-          break;
-        case 'Carpentry':
-          cityName = ['Chennai', 'Madurai', 'Coimbatore'][index % 3];
-          break;
-        case 'Cleaning':
-          cityName = ['Tiruppur', 'Salem', 'Karur'][index % 3];
-          break;
-        case 'Painting':
-          cityName = ['Coimbatore', 'Chennai', 'Erode'][index % 3];
-          break;
-        default:
-          cityName = Object.keys(cityCoordinates)[index % Object.keys(cityCoordinates).length];
-      }
-
-      const baseCoords = cityCoordinates[cityName];
-      
-      // Add small random offset for variation within the city
-      const latOffset = (Math.random() - 0.5) * 0.02;
-      const lngOffset = (Math.random() - 0.5) * 0.02;
-
-      return {
-        ...provider,
-        location: cityName,
-        coordinates: {
-          lat: baseCoords.lat + latOffset,
-          lng: baseCoords.lng + lngOffset
-        },
-        availability: ['2025-08-07', '2025-08-08', '2025-08-09']
-      };
-    });
-
-    setProviders(providersWithCoords);
-  } catch (error) {
-    console.error('Error fetching providers:', error);
-    setError(error.response?.data?.message || 'Error fetching providers');
-  }
-};
+      const cities = Object.keys(cityCoordinates);
+      const providersWithCoords = response.data.providers.map((provider, index) => {
+        const cityName = provider.location || cities[index % cities.length];
+        const baseCoords = cityCoordinates[cityName] || cityCoordinates['Erode'];
+        const latOffset = (Math.random() - 0.5) * 0.02;
+        const lngOffset = (Math.random() - 0.5) * 0.02;
+        return {
+          ...provider,
+          location: cityName,
+          coordinates: { lat: baseCoords.lat + latOffset, lng: baseCoords.lng + lngOffset },
+          availability: ['2025-08-07', '2025-08-08', '2025-08-09']
+        };
+      });
+      setProviders(providersWithCoords);
+    } catch (error) {
+      console.error('Error fetching providers:', error);
+      setError(error.response?.data?.message || 'Error fetching providers');
+    }
+  };
 
   const fetchBookings = async () => {
     try {
@@ -544,27 +589,29 @@ const fetchProvidersWithSpecificCities = async () => {
       const response = await axios.get('http://localhost:5000/api/bookings/customer', {
         headers: { Authorization: `Bearer ${token}` }
       });
-      setBookings(response.data.bookings || []);
+      const bookingsWithPaymentStatus = response.data.bookings.map(b => ({
+          ...b,
+          paymentStatus: b.paymentStatus || 'pending'
+      }));
+      setBookings(bookingsWithPaymentStatus || []);
     } catch (error) {
       console.error('Error fetching bookings:', error);
       setError(error.response?.data?.message || 'Error fetching bookings');
     }
   };
-
+ 
   const handleLogout = async () => {
     try {
       const token = localStorage.getItem('token');
       await axios.post('http://localhost:5000/api/auth/logout', {}, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      localStorage.removeItem('token');
-      localStorage.removeItem('userData');
-      navigate('/auth');
     } catch (error) {
       console.error('Error logging out:', error);
-      localStorage.removeItem('token');
-      localStorage.removeItem('userData');
-      navigate('/auth');
+    } finally {
+        localStorage.removeItem('token');
+        localStorage.removeItem('userData');
+        navigate('/auth');
     }
   };
 
@@ -572,53 +619,85 @@ const fetchProvidersWithSpecificCities = async () => {
     setSelectedProvider(provider);
     setBookingForm({
       ...bookingForm,
-      serviceType: provider.serviceType
+      serviceType: provider.serviceType,
+      address: user?.address || '',
+      files: []
     });
     setShowBookingModal(true);
+  };
+
+  const handleFileChange = (e) => {
+    const selectedFiles = Array.from(e.target.files);
+    const MAX_FILES = 5;
+    const MAX_SIZE_MB = 10;
+    let errorFound = false;
+
+    if (bookingForm.files.length + selectedFiles.length > MAX_FILES) {
+        alert(`You can only upload a maximum of ${MAX_FILES} files.`);
+        return;
+    }
+
+    const newFiles = selectedFiles.filter(file => {
+        if (file.size > MAX_SIZE_MB * 1024 * 1024) {
+            alert(`File "${file.name}" is too large. Maximum size is ${MAX_SIZE_MB}MB.`);
+            errorFound = true;
+            return false;
+        }
+        return true;
+    });
+
+    if (!errorFound) {
+        setBookingForm(prev => ({ ...prev, files: [...prev.files, ...newFiles] }));
+    }
+  };
+ 
+  const removeFile = (fileToRemove) => {
+    setBookingForm(prev => ({
+      ...prev,
+      files: prev.files.filter(file => file !== fileToRemove)
+    }));
   };
 
   const handleBookingSubmit = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
+    setError('');
+
+    const token = localStorage.getItem('token');
+    const formData = new FormData();
+
+    formData.append('providerId', selectedProvider._id);
+    formData.append('serviceType', bookingForm.serviceType);
+    formData.append('description', bookingForm.description);
+    formData.append('scheduledDate', bookingForm.date);
+    formData.append('scheduledTime', bookingForm.time);
+    formData.append('estimatedHours', bookingForm.estimatedHours);
+    formData.append('address', bookingForm.address);
+    formData.append('totalCost', selectedProvider.hourlyRate * bookingForm.estimatedHours);
+   
+    bookingForm.files.forEach(file => {
+      formData.append('attachments', file);
+    });
+
     try {
-      const token = localStorage.getItem('token');
-      const bookingData = {
-        providerId: selectedProvider._id,
-        serviceType: bookingForm.serviceType,
-        description: bookingForm.description,
-        scheduledDate: bookingForm.date,
-        scheduledTime: bookingForm.time,
-        estimatedHours: bookingForm.estimatedHours,
-        address: bookingForm.address,
-        totalCost: selectedProvider.hourlyRate * bookingForm.estimatedHours,
-        // Add customer details for notification
-        customerName: user.name,
-        customerPhone: user.phone,
-        customerEmail: user.email
-      };
-  
-      const response = await axios.post('http://localhost:5000/api/bookings', bookingData, {
-        headers: { Authorization: `Bearer ${token}` }
+      const response = await axios.post('http://localhost:5000/api/bookings', formData, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        }
       });
-  
+
       if (response.status === 201) {
         setShowBookingModal(false);
         setBookingForm({
-          serviceType: '',
-          description: '',
-          date: '',
-          time: '',
-          estimatedHours: 1,
-          address: user?.address || ''
+          serviceType: '', description: '', date: '', time: '',
+          estimatedHours: 1, address: user?.address || '', files: []
         });
-        fetchBookings();
-        
-        // Show success message with notification info
-        alert('Service booked successfully! The provider has been notified and will contact you soon.');
+        fetchBookings(); 
+        alert('Booking created successfully! The provider has been notified.');
       }
     } catch (error) {
-      console.error('Error booking service:', error);
-      setError(error.response?.data?.message || 'Error booking service. Please try again.');
+      console.error('Error creating booking:', error);
+      setError(error.response?.data?.message || 'Error creating booking. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
@@ -644,35 +723,110 @@ const fetchProvidersWithSpecificCities = async () => {
       }
     }
   };
+ 
+  const handlePayment = async (booking) => {
+    setIsSubmitting(true);
+    const token = localStorage.getItem('token');
+   
+    try {
+      const orderResponse = await axios.post('http://localhost:5000/api/payment/create-order', 
+        { 
+          amount: booking.totalCost * 100, // Amount in paisa
+          currency: 'INR',
+          bookingId: booking._id 
+        },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
 
+      const { order } = orderResponse.data;
+
+      const options = {
+        key: 'rzp_test_RMvbnplOP4FFVk', // Your provided Test Key ID
+        amount: order.amount,
+        currency: order.currency,
+        name: 'FixItUp Services',
+        description: `Payment for Booking #${booking._id}`,
+        order_id: order.id,
+        handler: async (response) => {
+          try {
+            const verificationResponse = await axios.post('http://localhost:5000/api/payment/verify-payment', 
+              {
+                razorpay_order_id: response.razorpay_order_id,
+                razorpay_payment_id: response.razorpay_payment_id,
+                razorpay_signature: response.razorpay_signature,
+                bookingId: booking._id
+              },
+              { headers: { Authorization: `Bearer ${token}` } }
+            );
+
+            if (verificationResponse.data.success) {
+              alert('Payment successful!');
+              fetchBookings();
+            } else {
+              setError('Payment verification failed. Please contact support.');
+            }
+          } catch (verifyError) {
+            console.error('Payment verification error:', verifyError);
+            setError(verifyError.response?.data?.message || 'Payment verification failed.');
+          }
+        },
+        prefill: {
+          name: user.name,
+          email: user.email,
+          contact: user.phone
+        },
+        notes: {
+          address: booking.address,
+          booking_id: booking._id
+        },
+        theme: {
+          color: '#3182ce'
+        }
+      };
+
+      const rzp = new window.Razorpay(options);
+      rzp.on('payment.failed', function (response){
+        setError(`Payment failed: ${response.error.description}. Please try again.`);
+        console.error('Razorpay payment failed:', response.error);
+      });
+      rzp.open();
+
+    } catch (error) {
+      console.error('Error creating payment order:', error);
+      setError(error.response?.data?.message || 'Could not initiate payment. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+ 
   const handleRatingSubmit = async (e) => {
     e.preventDefault();
-    if (ratingForm.rating < 1 || ratingForm.rating > 5) {
-      setError('Please select a rating between 1 and 5 stars.');
+    if (ratingForm.rating === 0) {
+      setError("Please select a rating from 1 to 5 stars.");
       return;
     }
     setIsSubmitting(true);
+    setError('');
     try {
       const token = localStorage.getItem('token');
       const response = await axios.post(
         `http://localhost:5000/api/bookings/${selectedBooking._id}/rate`,
         {
           rating: ratingForm.rating,
-          comment: ratingForm.comment
+          comment: ratingForm.comment,
         },
-        {
-          headers: { Authorization: `Bearer ${token}` }
-        }
+        { headers: { Authorization: `Bearer ${token}` } }
       );
+
       if (response.status === 200) {
+        alert('Thank you for your feedback!');
         setShowRatingModal(false);
         setRatingForm({ rating: 0, comment: '' });
         fetchBookings();
-        alert('Rating submitted successfully!');
       }
     } catch (error) {
-      console.error('Error submitting rating:', error);
-      setError(error.response?.data?.message || 'Failed to submit rating. Please try again.');
+      console.error("Error submitting rating:", error);
+      setError(error.response?.data?.message || "Failed to submit rating.");
     } finally {
       setIsSubmitting(false);
     }
@@ -680,53 +834,49 @@ const fetchProvidersWithSpecificCities = async () => {
 
   const handleRescheduleSubmit = async (e) => {
     e.preventDefault();
-    setError(''); // Clear previous errors
+    setError('');
     if (!selectedBooking) {
       setError('No booking selected for rescheduling.');
       return;
     }
-
     const today = new Date();
     const selectedDateTime = new Date(`${rescheduleForm.date}T${rescheduleForm.time}`);
-    
-    // Validate date and time
     if (!rescheduleForm.date || !rescheduleForm.time) {
       setError('Please provide both date and time.');
       return;
     }
-
     if (selectedDateTime < today) {
       setError('Cannot reschedule to a past date and time.');
       return;
     }
-
-    // Validate time format (ensure it's in HH:mm format)
     const timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
     if (!timeRegex.test(rescheduleForm.time)) {
       setError('Please enter a valid time in HH:mm format.');
       return;
     }
-
     setIsSubmitting(true);
     try {
       const token = localStorage.getItem('token');
       const response = await axios.put(
         `http://localhost:5000/api/bookings/${selectedBooking._id}/reschedule`,
-        {
-          scheduledDate: rescheduleForm.date,
-          scheduledTime: rescheduleForm.time
-        },
-        {
-          headers: { Authorization: `Bearer ${token}` }
-        }
+        { scheduledDate: rescheduleForm.date, scheduledTime: rescheduleForm.time },
+        { headers: { Authorization: `Bearer ${token}` } }
       );
-
       if (response.status === 200) {
+        if (socketRef.current) {
+          socketRef.current.emit('bookingRescheduled', {
+            providerId: selectedBooking.providerId,
+            bookingId: selectedBooking._id,
+            customerName: user?.name || 'A customer',
+            newDate: rescheduleForm.date,
+            newTime: rescheduleForm.time
+          });
+        }
         setShowRescheduleModal(false);
         setRescheduleForm({ date: '', time: '' });
         setSelectedBooking(null);
         fetchBookings();
-        alert('Booking rescheduled successfully!');
+        alert('Booking rescheduled successfully! The provider has been notified.');
       }
     } catch (error) {
       console.error('Error rescheduling booking:', error);
@@ -745,9 +895,7 @@ const fetchProvidersWithSpecificCities = async () => {
       const response = await axios.put(
         'http://localhost:5000/api/auth/profile',
         profileForm,
-        {
-          headers: { Authorization: `Bearer ${token}` }
-        }
+        { headers: { Authorization: `Bearer ${token}` } }
       );
       if (response.status === 200) {
         setUser(response.data.user);
@@ -762,17 +910,83 @@ const fetchProvidersWithSpecificCities = async () => {
     }
   };
 
+  const handleOpenChat = async (booking) => {
+    setChatBooking(booking);
+    setShowChatModal(true);
+    setIsChatLoading(true);
+    setError('');
+
+    try {
+        const token = localStorage.getItem('token');
+        const response = await axios.get(`http://localhost:5000/api/chat/${booking._id}/messages`, {
+            headers: { Authorization: `Bearer ${token}` }
+        });
+        setMessages(response.data.messages || []);
+        if (socketRef.current) {
+            socketRef.current.emit('joinChatRoom', booking._id);
+        }
+    } catch (err) {
+        console.error("Failed to fetch chat history:", err);
+        setError("Could not load chat history. Please try again.");
+    } finally {
+        setIsChatLoading(false);
+    }
+  };
+
+  const handleCloseChat = () => {
+    if (socketRef.current && chatBooking) {
+        socketRef.current.emit('leaveChatRoom', chatBooking._id);
+    }
+    setShowChatModal(false);
+    setChatBooking(null);
+    setMessages([]);
+    setNewMessage('');
+  };
+
+  const handleSendMessage = (e) => {
+    e.preventDefault();
+    if (!newMessage.trim() || !user || !chatBooking) return;
+
+    const messageData = {
+        bookingId: chatBooking._id,
+        senderId: user._id,
+        receiverId: chatBooking.providerId,
+        text: newMessage,
+    };
+
+    if (socketRef.current) {
+        socketRef.current.emit('sendMessage', messageData);
+    }
+
+    const optimisticMessage = {
+        ...messageData,
+        _id: Date.now(),
+        sender: { _id: user._id, name: user.name },
+        createdAt: new Date().toISOString()
+    };
+    setMessages(prev => [...prev, optimisticMessage]);
+    setNewMessage('');
+  };
+  
+  const handleTrackProvider = (booking) => {
+    setBookingToTrack(booking);
+    setProviderLiveLocation(null); // Reset location on open
+    setShowTrackingModal(true);
+  };
+
+  const handleCloseTrackingModal = () => {
+    setShowTrackingModal(false);
+    setBookingToTrack(null);
+    setProviderLiveLocation(null);
+  };
+
   const exportBookings = () => {
     const csvContent = [
-      ['Booking ID', 'Service Type', 'Provider', 'Date', 'Time', 'Status', 'Cost'],
+      ['Booking ID', 'Service Type', 'Provider', 'Date', 'Time', 'Status', 'Cost', 'Payment Status'],
       ...bookings.map(booking => [
-        booking._id,
-        booking.serviceType,
-        booking.providerName,
-        formatDate(booking.scheduledDate),
-        formatTime(booking.scheduledTime),
-        booking.status,
-        booking.totalCost
+        booking._id, booking.serviceType, booking.providerName,
+        formatDate(booking.scheduledDate), formatTime(booking.scheduledTime),
+        booking.status, booking.totalCost, booking.paymentStatus || 'pending'
       ])
     ].map(row => row.join(',')).join('\n');
 
@@ -786,6 +1000,32 @@ const fetchProvidersWithSpecificCities = async () => {
     document.body.removeChild(link);
   };
 
+  const formatRelativeTime = (date) => {
+    const now = new Date();
+    const seconds = Math.floor((now - new Date(date)) / 1000);
+    let interval = seconds / 31536000;
+    if (interval > 1) return Math.floor(interval) + "y ago";
+    interval = seconds / 2592000;
+    if (interval > 1) return Math.floor(interval) + "mo ago";
+    interval = seconds / 86400;
+    if (interval > 1) return Math.floor(interval) + "d ago";
+    interval = seconds / 3600;
+    if (interval > 1) return Math.floor(interval) + "h ago";
+    interval = seconds / 60;
+    if (interval > 1) return Math.floor(interval) + "m ago";
+    return Math.floor(seconds) + "s ago";
+  };
+
+  const handleMarkAsRead = (id) => {
+    setNotifications(notifications.map(n => n.id === id ? { ...n, isRead: true } : n));
+  };
+  const handleMarkAllAsRead = () => {
+    setNotifications(notifications.map(n => ({ ...n, isRead: true })));
+  };
+  const handleClearAll = () => {
+    setNotifications([]);
+    setShowNotifications(false);
+  };
   const getStatusColor = (status) => {
     switch (status) {
       case 'pending': return '#d69e2e';
@@ -798,8 +1038,12 @@ const fetchProvidersWithSpecificCities = async () => {
   };
 
   const formatDate = (dateString) => {
+    if (!dateString) return 'N/A';
+    const date = new Date(dateString);
+    const userTimezoneOffset = date.getTimezoneOffset() * 60000;
+    const adjustedDate = new Date(date.getTime() + userTimezoneOffset);
     const options = { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' };
-    return new Date(dateString).toLocaleDateString('en-IN', options);
+    return adjustedDate.toLocaleDateString('en-IN', options);
   };
 
   const formatTime = (timeString) => {
@@ -814,17 +1058,15 @@ const fetchProvidersWithSpecificCities = async () => {
     .map(provider => ({
       ...provider,
       distance: userLocation ? calculateDistance(
-        userLocation.lat,
-        userLocation.lng,
-        provider.coordinates.lat,
-        provider.coordinates.lng
+        userLocation.lat, userLocation.lng,
+        provider.coordinates.lat, provider.coordinates.lng
       ) : 0
     }))
     .filter(provider => {
       const matchesSearch = provider.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         provider.serviceType.toLowerCase().includes(searchTerm.toLowerCase());
       const matchesFilter = filterService === 'all' || provider.serviceType === filterService;
-      const matchesAvailability = !availabilityFilter || 
+      const matchesAvailability = !availabilityFilter ||
         (provider.availability && provider.availability.includes(availabilityFilter));
       return matchesSearch && matchesFilter && matchesAvailability;
     })
@@ -838,7 +1080,6 @@ const fetchProvidersWithSpecificCities = async () => {
     (currentPage - 1) * providersPerPage,
     currentPage * providersPerPage
   );
-
   const totalPages = Math.ceil(filteredProviders.length / providersPerPage);
 
   const filteredBookings = bookings.filter(booking => {
@@ -855,6 +1096,8 @@ const fetchProvidersWithSpecificCities = async () => {
   const pastBookings = filteredBookings.filter(b =>
     ['completed', 'cancelled'].includes(b.status)
   ).sort((a, b) => new Date(b.scheduledDate) - new Date(a.scheduledDate));
+
+  const unreadCount = notifications.filter(n => !n.isRead).length;
 
   if (loading) {
     return (
@@ -884,42 +1127,42 @@ const fetchProvidersWithSpecificCities = async () => {
           <nav className="sidebar-nav">
             <button
               className={`nav-item ${activeTab === 'dashboard' ? 'nav-item-active' : ''}`}
-              onClick={() => setActiveTab('dashboard')}
+              onClick={() => handleTabChange('dashboard')}
             >
               <span>📊</span>
               Dashboard
             </button>
             <button
               className={`nav-item ${activeTab === 'book-service' ? 'nav-item-active' : ''}`}
-              onClick={() => setActiveTab('book-service')}
+              onClick={() => handleTabChange('book-service')}
             >
               <span>🔧</span>
               Book a Service
             </button>
             <button
               className={`nav-item ${activeTab === 'nearby-providers' ? 'nav-item-active' : ''}`}
-              onClick={() => setActiveTab('nearby-providers')}
+              onClick={() => handleTabChange('nearby-providers')}
             >
               <span>📍</span>
               Nearby Providers
             </button>
             <button
               className={`nav-item ${activeTab === 'my-bookings' ? 'nav-item-active' : ''}`}
-              onClick={() => setActiveTab('my-bookings')}
+              onClick={() => handleTabChange('my-bookings')}
             >
               <span>📅</span>
               My Bookings
             </button>
             <button
               className={`nav-item ${activeTab === 'providers' ? 'nav-item-active' : ''}`}
-              onClick={() => setActiveTab('providers')}
+              onClick={() => handleTabChange('providers')}
             >
               <span>👔</span>
               All Providers
             </button>
             <button
               className={`nav-item ${activeTab === 'profile' ? 'nav-item-active' : ''}`}
-              onClick={() => setActiveTab('profile')}
+              onClick={() => handleTabChange('profile')}
             >
               <span>⚙️</span>
               My Profile
@@ -962,10 +1205,52 @@ const fetchProvidersWithSpecificCities = async () => {
                 />
                 <span className="search-icon">🔍</span>
               </div>
-              <button className="notification-btn">
-                <span>🔔</span>
-                <span className="badge">3</span>
-              </button>
+
+              <div className="notification-container">
+                <button
+                  className="notification-btn"
+                  onClick={() => setShowNotifications(!showNotifications)}
+                >
+                  <span>🔔</span>
+                  {unreadCount > 0 && <span className="badge">{unreadCount}</span>}
+                </button>
+                {showNotifications && (
+                  <div className="notification-panel">
+                    <div className="notification-header">
+                      <h3>Notifications</h3>
+                      <div>
+                        <button onClick={handleMarkAllAsRead}>Mark all as read</button>
+                        <button onClick={handleClearAll}>Clear all</button>
+                      </div>
+                    </div>
+                    <div className="notification-list">
+                      {notifications.length > 0 ? (
+                        notifications.map(n => (
+                          <div
+                            key={n.id}
+                            className={`notification-item ${n.isRead ? 'read' : 'unread'}`}
+                            onClick={() => handleMarkAsRead(n.id)}
+                          >
+                            <div className="notification-content">
+                              <strong>{n.title}</strong>
+                              <p>{n.message}</p>
+                            </div>
+                            <div className="notification-meta">
+                              <span className="timestamp">{formatRelativeTime(n.timestamp)}</span>
+                              {!n.isRead && <span className="unread-dot"></span>}
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="notification-empty">
+                          <p>You have no new notifications.</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
               <img src="/Fixitup1.png" alt="FixItUp Logo" className="logo" />
             </div>
           </header>
@@ -1034,7 +1319,7 @@ const fetchProvidersWithSpecificCities = async () => {
                                   onClick={() => booking.status === 'pending' && cancelBooking(booking._id)}
                                   disabled={booking.status !== 'pending' || isSubmitting}
                                 >
-                                  {isSubmitting ? 'Cancelling...' : 'Cancel'}
+                                {isSubmitting ? 'Cancelling...' : 'Cancel'}
                                 </button>
                               </div>
                             </div>
@@ -1106,7 +1391,7 @@ const fetchProvidersWithSpecificCities = async () => {
                 </div>
               </div>
             )}
-
+           
             {activeTab === 'nearby-providers' && (
               <div>
                 <div className="map-container">
@@ -1206,6 +1491,7 @@ const fetchProvidersWithSpecificCities = async () => {
                           onLocationUpdate={setUserLocation}
                         />
                         <MapClickHandler onMapClick={handleMapClick} />
+                         <MapGeocoder onLocationSelect={handleMapClick} />
                         <Marker
                           position={[userLocation.lat, userLocation.lng]}
                           icon={userLocationIcon}
@@ -1386,11 +1672,11 @@ const fetchProvidersWithSpecificCities = async () => {
                 </div>
               </div>
             )}
-
-            {activeTab === 'book-service' && (
+           
+            {(activeTab === 'book-service' || activeTab === 'providers') && (
               <div className="section-card">
                 <div className="section-header">
-                  <h2>Available Services</h2>
+                  <h2>{activeTab === 'book-service' ? 'Available Services' : 'All Service Providers'}</h2>
                   <div className="filter-container">
                     <select
                       value={filterService}
@@ -1411,16 +1697,18 @@ const fetchProvidersWithSpecificCities = async () => {
                       <option value="rating">Sort by Rating</option>
                       <option value="price">Sort by Price</option>
                     </select>
-                    <select
-                      value={availabilityFilter}
-                      onChange={(e) => setAvailabilityFilter(e.target.value)}
-                      className="filter-select"
-                    >
-                      <option value="">All Availability</option>
-                      <option value="2025-08-07">Tomorrow</option>
-                      <option value="2025-08-08">Day After Tomorrow</option>
-                      <option value="2025-08-09">This Weekend</option>
-                    </select>
+                    {activeTab === 'book-service' && (
+                        <select
+                        value={availabilityFilter}
+                        onChange={(e) => setAvailabilityFilter(e.target.value)}
+                        className="filter-select"
+                        >
+                        <option value="">All Availability</option>
+                        <option value="2025-08-07">Tomorrow</option>
+                        <option value="2025-08-08">Day After Tomorrow</option>
+                        <option value="2025-08-09">This Weekend</option>
+                        </select>
+                    )}
                   </div>
                 </div>
                 <div className="section-content">
@@ -1489,7 +1777,7 @@ const fetchProvidersWithSpecificCities = async () => {
                 </div>
               </div>
             )}
-
+           
             {activeTab === 'my-bookings' && (
               <div className="section-card">
                 <div className="section-header">
@@ -1542,76 +1830,127 @@ const fetchProvidersWithSpecificCities = async () => {
                         <div key={booking._id} className="booking-card">
                           <div className="booking-card-header">
                             <h3>{booking.serviceType}</h3>
-                            <span
-                              className="status-badge"
-                              style={{ backgroundColor: getStatusColor(booking.status) }}
-                            >
-                              {booking.status}
-                            </span>
+                                <div>
+                                    {booking.paymentStatus === 'paid' && (
+                                        <span className="status-badge" style={{ backgroundColor: '#38a169', color: 'white' }}>
+                                            Paid
+                                        </span>
+                                    )}
+                                    <span
+                                        className="status-badge"
+                                        style={{ backgroundColor: getStatusColor(booking.status), marginLeft: '8px' }}
+                                    >
+                                        {booking.status}
+                                    </span>
+                                </div>
                           </div>
                           <div className="booking-card-body">
                             <div className="booking-info">
-                              <p>
-                                <strong>Provider:</strong> {booking.providerName}<br/>
-                                <strong>Date:</strong> {formatDate(booking.scheduledDate)}<br/>
-                                <strong>Time:</strong> {formatTime(booking.scheduledTime)}<br/>
-                                <strong>Address:</strong> {booking.address}<br/>
-                                <strong>Description:</strong> {booking.description || 'No description provided'}
-                              </p>
+                              <div className="booking-detail-item">
+                                <strong>Provider:</strong>
+                                <span>{booking.providerName}</span>
+                              </div>
+                              <div className="booking-detail-item">
+                                <strong>Date:</strong>
+                                <span>{formatDate(booking.scheduledDate)}</span>
+                              </div>
+                              <div className="booking-detail-item">
+                                <strong>Time:</strong>
+                                <span>{formatTime(booking.scheduledTime)}</span>
+                              </div>
+                              <div className="booking-detail-item">
+                                <strong>Address:</strong>
+                                <span>{booking.address}</span>
+                              </div>
+                              <div className="booking-detail-item">
+                                <strong>Description:</strong>
+                                <span>{booking.description || 'No description provided'}</span>
+                              </div>
+
                               {booking.rating && (
-                                <p>
-                                  <strong>Your Rating:</strong> {'★'.repeat(booking.rating)} ({booking.rating})
-                                  {booking.comment && <><br/><strong>Comment:</strong> {booking.comment}</>}
-                                </p>
+                              <div className="booking-detail-item rating-display">
+                                <strong>Your Rating:</strong>
+                                <div>
+                                  <span>{'★'.repeat(booking.rating)} ({booking.rating})</span>
+                                  {booking.comment && <p className="rating-comment"><strong>Comment:</strong> {booking.comment}</p>}
+                                </div>
+                              </div>
                               )}
                             </div>
                             <div className="booking-payment">
                               <span>₹{booking.totalCost}</span>
-                              <div className="provider-actions">
-                                {booking.status === 'pending' && (
-                                  <button
-                                    className="cancel-btn"
-                                    onClick={() => cancelBooking(booking._id)}
-                                    disabled={isSubmitting}
-                                  >
-                                    {isSubmitting ? 'Cancelling...' : 'Cancel Booking'}
-                                  </button>
-                                )}
-                                {['pending', 'confirmed'].includes(booking.status) && (
+                                <div className="provider-actions">
+                                  {booking.status === 'in-progress' && (
+                                    <button
+                                      className="primary-btn"
+                                      onClick={() => handleTrackProvider(booking)}
+                                    >
+                                      <span>📍</span> Track Provider
+                                    </button>
+                                  )}
+                                  {['confirmed', 'in-progress'].includes(booking.status) && (
+                                      <button
+                                          className="primary-btn"
+                                          onClick={() => handleOpenChat(booking)}
+                                      >
+                                          <span>💬</span> Chat
+                                      </button>
+                                  )}
+                                  {booking.status === 'completed' && booking.paymentStatus !== 'paid' && (
+                                      <button
+                                          className="primary-btn"
+                                          onClick={() => handlePayment(booking)}
+                                          disabled={isSubmitting}
+                                      >
+                                          {isSubmitting ? 'Processing...' : 'Pay Now'}
+                                      </button>
+                                  )}
+                                  
+                                  {['pending', 'confirmed'].includes(booking.status) && (
+                                    <button
+                                      className="cancel-btn"
+                                      onClick={() => cancelBooking(booking._id)}
+                                      disabled={isSubmitting}
+                                    >
+                                      {isSubmitting ? 'Cancelling...' : 'Cancel'}
+                                    </button>
+                                  )}
+
+                                  {['pending', 'confirmed'].includes(booking.status) && (
+                                    <button
+                                      className="secondary-btn"
+                                      onClick={() => {
+                                        setSelectedBooking(booking);
+                                        setRescheduleForm({
+                                          date: new Date(booking.scheduledDate).toISOString().split('T')[0],
+                                          time: booking.scheduledTime
+                                        });
+                                        setShowRescheduleModal(true);
+                                      }}
+                                      disabled={isSubmitting}
+                                    >
+                                      Reschedule
+                                    </button>
+                                  )}
+                                  {booking.status === 'completed' && !booking.rating && (
+                                    <button
+                                      className="primary-btn"
+                                      onClick={() => {
+                                        setSelectedBooking(booking);
+                                        setShowRatingModal(true);
+                                      }}
+                                      disabled={isSubmitting}
+                                    >
+                                      Rate Service
+                                    </button>
+                                  )}
                                   <button
                                     className="secondary-btn"
-                                    onClick={() => {
-                                      setSelectedBooking(booking);
-                                      setRescheduleForm({
-                                        date: booking.scheduledDate,
-                                        time: booking.scheduledTime
-                                      });
-                                      setShowRescheduleModal(true);
-                                    }}
-                                    disabled={isSubmitting}
+                                    onClick={() => setShowBookingDetails(booking)}
                                   >
-                                    Reschedule
+                                    View Details
                                   </button>
-                                )}
-                                {booking.status === 'completed' && !booking.rating && (
-                                  <button
-                                    className="primary-btn"
-                                    onClick={() => {
-                                      setSelectedBooking(booking);
-                                      setShowRatingModal(true);
-                                    }}
-                                    disabled={isSubmitting}
-                                  >
-                                    Rate Service
-                                  </button>
-                                )}
-                                <button
-                                  className="secondary-btn"
-                                  onClick={() => setShowBookingDetails(booking)}
-                                >
-                                  View Details
-                                </button>
-                              </div>
+                                </div>
                             </div>
                           </div>
                         </div>
@@ -1633,100 +1972,7 @@ const fetchProvidersWithSpecificCities = async () => {
                 </div>
               </div>
             )}
-
-            {activeTab === 'providers' && (
-              <div className="section-card">
-                <div className="section-header">
-                  <h2>All Service Providers</h2>
-                  <div className="filter-container">
-                    <select
-                      value={filterService}
-                      onChange={(e) => setFilterService(e.target.value)}
-                      className="filter-select"
-                    >
-                      <option value="all">All Services</option>
-                      {serviceTypes.map(type => (
-                        <option key={type} value={type}>{type}</option>
-                      ))}
-                    </select>
-                    <select
-                      value={sortBy}
-                      onChange={(e) => setSortBy(e.target.value)}
-                      className="filter-select"
-                    >
-                      <option value="distance">Sort by Distance</option>
-                      <option value="rating">Sort by Rating</option>
-                      <option value="price">Sort by Price</option>
-                    </select>
-                  </div>
-                </div>
-                <div className="section-content">
-                  <div className="providers-grid">
-                    {paginatedProviders.map(provider => (
-                      <div
-                        key={provider._id}
-                        className="provider-card"
-                      >
-                        <div className="provider-card-header">
-                          <div className="provider-avatar">
-                            {provider.name.charAt(0)}
-                          </div>
-                          <div className="provider-title">
-                            <h3>{provider.name}</h3>
-                            <p className="service-type">{provider.serviceType}</p>
-                            <div className="provider-rating">
-                              {'★'.repeat(Math.round(provider.rating))} ({provider.rating})
-                            </div>
-                          </div>
-                        </div>
-                        <div className="provider-details">
-                          <p>
-                            Distance: {formatDistance(provider.distance)}<br/>
-                            Rate: ₹{provider.hourlyRate}/hr<br/>
-                            Availability: {provider.availability?.join(', ') || 'Check with provider'}
-                          </p>
-                        </div>
-                        <div className="provider-actions">
-                          <button
-                            className="primary-btn"
-                            onClick={() => handleBookService(provider)}
-                          >
-                            Book Now
-                          </button>
-                          <button
-                            className="secondary-btn"
-                            onClick={() => setSelectedProvider2(provider)}
-                          >
-                            View Details
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  {paginatedProviders.length === 0 && (
-                    <div className="empty-state">
-                      <div className="empty-state-icon">👔</div>
-                      <h3>No providers found</h3>
-                      <p>Try adjusting your search or filters</p>
-                    </div>
-                  )}
-                  {totalPages > 1 && (
-                    <div className="pagination">
-                      {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
-                        <button
-                          key={page}
-                          className={`page-button ${currentPage === page ? 'page-button-active' : ''}`}
-                          onClick={() => setCurrentPage(page)}
-                        >
-                          {page}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
+           
             {activeTab === 'profile' && (
               <div className="section-card">
                 <div className="section-header">
@@ -1906,7 +2152,7 @@ const fetchProvidersWithSpecificCities = async () => {
                       <input
                         type="number"
                         value={bookingForm.estimatedHours}
-                        onChange={(e) => setBookingForm({ ...bookingForm, estimatedHours: parseInt(e.target.value) })}
+                        onChange={(e) => setBookingForm({ ...bookingForm, estimatedHours: parseInt(e.target.value) || 1 })}
                         className="form-input"
                         min="1"
                         required
@@ -1921,6 +2167,54 @@ const fetchProvidersWithSpecificCities = async () => {
                         required
                       />
                     </div>
+                   
+                    <div className="form-group">
+                        <label className="form-label">
+                            Add Photos/Videos (Optional)
+                            <small>Max 5 files, 10MB each</small>
+                        </label>
+                        <div className="file-upload-container">
+                            <input
+                                type="file"
+                                multiple
+                                accept="image/*,video/*"
+                                onChange={handleFileChange}
+                                className="file-input"
+                                id="file-upload"
+                            />
+                            <label htmlFor="file-upload" className="file-input-label">
+                                <span>📤</span> Choose Files
+                            </label>
+                        </div>
+                        {bookingForm.files.length > 0 && (
+                            <div className="file-preview-container">
+                                {bookingForm.files.map((file, index) => (
+                                    <div key={index} className="file-preview-item">
+                                        {file.type.startsWith('image/') ? (
+                                            <img
+                                                src={URL.createObjectURL(file)}
+                                                alt={file.name}
+                                                className="file-preview-image"
+                                            />
+                                        ) : (
+                                            <div className="file-preview-video">
+                                                <span>📹</span>
+                                                <p>{file.name}</p>
+                                            </div>
+                                        )}
+                                        <button
+                                            type="button"
+                                            className="remove-file-btn"
+                                            onClick={() => removeFile(file)}
+                                        >
+                                            ×
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+
                     <div className="cost-summary">
                       <h4>Cost Summary</h4>
                       <div className="cost-details">
@@ -1959,7 +2253,7 @@ const fetchProvidersWithSpecificCities = async () => {
                 </div>
               </div>
             )}
-
+           
             {showRatingModal && (
               <div className="modal-overlay">
                 <div className="booking-modal">
@@ -2082,7 +2376,7 @@ const fetchProvidersWithSpecificCities = async () => {
                 </div>
               </div>
             )}
-
+           
             {showBookingDetails && (
               <div className="modal-overlay">
                 <div className="booking-modal">
@@ -2098,22 +2392,41 @@ const fetchProvidersWithSpecificCities = async () => {
                   <div className="booking-form">
                     <div className="booking-details">
                       <h3>{showBookingDetails.serviceType}</h3>
-                      <p>
-                        <strong>Provider:</strong> {showBookingDetails.providerName}<br/>
-                        <strong>Status:</strong> <span style={{ color: getStatusColor(showBookingDetails.status) }}>
-                          {showBookingDetails.status}
-                        </span><br/>
-                        <strong>Date:</strong> {formatDate(showBookingDetails.scheduledDate)}<br/>
-                        <strong>Time:</strong> {formatTime(showBookingDetails.scheduledTime)}<br/>
-                        <strong>Address:</strong> {showBookingDetails.address}<br/>
-                        <strong>Description:</strong> {showBookingDetails.description || 'No description provided'}<br/>
-                        <strong>Total Cost:</strong> ₹{showBookingDetails.totalCost}
-                      </p>
+                      <div className="booking-detail-item">
+                        <strong>Provider:</strong> <span>{showBookingDetails.providerName}</span>
+                      </div>
+                      <div className="booking-detail-item">
+                        <strong>Status:</strong> <span style={{ color: getStatusColor(showBookingDetails.status), textTransform: 'capitalize' }}>{showBookingDetails.status}</span>
+                      </div>
+                          {showBookingDetails.status === 'completed' && (
+                                <div className="booking-detail-item">
+                                    <strong>Payment:</strong> <span style={{ color: showBookingDetails.paymentStatus === 'paid' ? '#38a169' : '#d69e2e', textTransform: 'capitalize' }}>{showBookingDetails.paymentStatus}</span>
+                                </div>
+                          )}
+                      <div className="booking-detail-item">
+                        <strong>Date:</strong> <span>{formatDate(showBookingDetails.scheduledDate)}</span>
+                      </div>
+                      <div className="booking-detail-item">
+                        <strong>Time:</strong> <span>{formatTime(showBookingDetails.scheduledTime)}</span>
+                      </div>
+                      <div className="booking-detail-item">
+                        <strong>Address:</strong> <span>{showBookingDetails.address}</span>
+                      </div>
+                      <div className="booking-detail-item">
+                        <strong>Description:</strong> <span>{showBookingDetails.description || 'No description provided'}</span>
+                      </div>
+                      <div className="booking-detail-item">
+                        <strong>Total Cost:</strong> <span>₹{showBookingDetails.totalCost}</span>
+                      </div>
+
                       {showBookingDetails.rating && (
-                        <p>
-                          <strong>Your Rating:</strong> {'★'.repeat(showBookingDetails.rating)} ({showBookingDetails.rating})
-                          {showBookingDetails.comment && <><br/><strong>Comment:</strong> {showBookingDetails.comment}</>}
-                        </p>
+                        <div className="booking-detail-item rating-display">
+                          <strong>Your Rating:</strong> 
+                          <div>
+                            <span>{'★'.repeat(showBookingDetails.rating)} ({showBookingDetails.rating})</span>
+                            {showBookingDetails.comment && <p className="rating-comment"><strong>Comment:</strong> {showBookingDetails.comment}</p>}
+                          </div>
+                        </div>
                       )}
                     </div>
                     <div className="modal-actions">
@@ -2127,6 +2440,101 @@ const fetchProvidersWithSpecificCities = async () => {
                   </div>
                 </div>
               </div>
+            )}
+           
+            {showChatModal && chatBooking && (
+                <div className="modal-overlay">
+                    <div className="chat-modal">
+                        <div className="modal-header">
+                            <h2>Chat with {chatBooking.providerName}</h2>
+                            <button className="close-btn" onClick={handleCloseChat}>×</button>
+                        </div>
+                        <div className="chat-messages">
+                            {isChatLoading ? (
+                                <div className="loading-spinner"></div>
+                            ) : messages.length > 0 ? (
+                                messages.map(msg => {
+                                    const isSent = msg.senderId === user._id || msg.sender?._id === user._id;
+                                    return (
+                                        <div
+                                            key={msg._id}
+                                            className={`chat-message ${isSent ? 'sent' : 'received'}`}
+                                        >
+                                            <div className="message-bubble">
+                                                {!isSent && (
+                                                    <strong className="message-sender-name">
+                                                        {msg.sender?.name || chatBooking.providerName}
+                                                    </strong>
+                                                )}
+                                                <p className="message-text">{msg.text}</p>
+                                                <span className="message-timestamp">
+                                                    {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    )
+                                })
+                            ) : (
+                                <p className="empty-chat-message">No messages yet. Start the conversation!</p>
+                            )}
+                            <div ref={chatMessagesEndRef} />
+                        </div>
+                        <form className="chat-form" onSubmit={handleSendMessage}>
+                            <input
+                                type="text"
+                                className="chat-input"
+                                placeholder="Type a message..."
+                                value={newMessage}
+                                onChange={(e) => setNewMessage(e.target.value)}
+                                autoComplete="off"
+                            />
+                            <button type="submit" className="chat-send-btn" disabled={!newMessage.trim()}>
+                                Send
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {/* --- PROVIDER TRACKING MODAL --- */}
+            {showTrackingModal && bookingToTrack && (
+                <div className="modal-overlay">
+                    <div className="booking-modal" style={{ width: '80vw', maxWidth: '900px' }}>
+                        <div className="modal-header">
+                            <h2>Tracking {bookingToTrack.providerName}</h2>
+                            <button className="close-btn" onClick={handleCloseTrackingModal}>×</button>
+                        </div>
+                        <div style={{ height: '60vh', width: '100%' }}>
+                            <MapContainer
+                                center={providerLiveLocation ? [providerLiveLocation.lat, providerLiveLocation.lng] : [userLocation.lat, userLocation.lng]}
+                                zoom={15}
+                                style={{ height: '100%', width: '100%' }}
+                                scrollWheelZoom={true}
+                            >
+                                <TileLayer
+                                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                                    attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                                />
+                                {/* Customer Marker (Home) */}
+                                <Marker position={[userLocation.lat, userLocation.lng]} icon={userLocationIcon}>
+                                    <Popup>Your Location</Popup>
+                                </Marker>
+                                
+                                {/* Provider's Live Marker */}
+                                {providerLiveLocation ? (
+                                    <>
+                                        <AnimatedMarker position={[providerLiveLocation.lat, providerLiveLocation.lng]} icon={providerTrackingIcon} />
+                                        <Polyline positions={[[userLocation.lat, userLocation.lng], [providerLiveLocation.lat, providerLiveLocation.lng]]} color="#2563eb" dashArray="5, 10" />
+                                    </>
+                                ) : (
+                                   <div style={{ position: 'absolute', top: '10px', left: '50%', transform: 'translateX(-50%)', zIndex: 1000, background: 'white', padding: '5px 10px', borderRadius: '5px', boxShadow: '0 2px 5px rgba(0,0,0,0.2)' }}>
+                                        Waiting for provider's location...
+                                   </div>
+                                )}
+                            </MapContainer>
+                        </div>
+                    </div>
+                </div>
             )}
           </div>
         </main>

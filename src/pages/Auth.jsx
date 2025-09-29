@@ -1395,6 +1395,7 @@ const Auth = () => {
           margin-bottom: 0.5rem;
         }
 
+        /* FIXED: Form inputs now have visible text */
         .form-input, .form-select, .form-textarea {
           width: 100%;
           padding: 1rem 1.25rem;
@@ -1404,6 +1405,11 @@ const Auth = () => {
           transition: all 0.2s ease;
           background: rgba(255, 255, 255, 0.8);
           backdrop-filter: blur(10px);
+          color: #111827; /* CRITICAL: Makes text visible */
+        }
+
+        .form-input::placeholder, .form-textarea::placeholder {
+          color: #6B7280; /* Makes placeholder text visible */
         }
 
         .form-input:focus, .form-select:focus, .form-textarea:focus {
@@ -1411,6 +1417,7 @@ const Auth = () => {
           border-color: #26A69A;
           box-shadow: 0 0 0 3px rgba(38, 166, 154, 0.1);
           background: rgba(255, 255, 255, 0.95);
+          color: #111827; /* Ensure text stays visible on focus */
         }
 
         .form-input.provider:focus, .form-select.provider:focus, .form-textarea.provider:focus {
